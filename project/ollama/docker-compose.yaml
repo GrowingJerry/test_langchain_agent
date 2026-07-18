@@ -1,0 +1,29 @@
+services:
+  ollama:
+    image: ollama/ollama:latest  # 换回官方镜像
+    container_name: ollama
+    restart: always
+    volumes:
+      - F:/ollama:/root/.ollama  # 建议挂载到 .ollama 根目录，不仅包含模型还包含配置
+    environment:
+      - OLLAMA_HOST=0.0.0.0  # 修改为监听所有接口
+    networks:
+      ie-net:
+        ipv4_address: 172.23.0.7   
+    ports:
+      - "11434:11434"
+    # command: ollama serve  # 官方镜像默认就是这个命令，可以直接删掉这行
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all      # 使用所有可用 GPU，或改为 1 指定单卡
+              capabilities: [gpu]
+              
+networks:
+  ie-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16

@@ -1,0 +1,55 @@
+from pathlib import Path
+
+import pytest
+
+import core.project_manager as manager_module
+from config.settings import Settings
+from core.project_manager import ProjectManager
+from services.upload_service import UploadService, UploadValidationError
+
+
+@pytest.fixture
+def upload_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[UploadService, str, Path]:
+    monkeypatch.setattr(manager_module, "PROJECT_OUTPUT_ROOT", tmp_path / "projects")
+    manager = ProjectManager(tmp_path / "workspace.db")
+    project_id = manager.create_project("上传安全")["project_id"]
+    return (
+        UploadService(manager, Settings(enable_ollama=False, upload_max_bytes=32)),
+        project_id,
+        tmp_path,
+    )
+
+
+def test_rejects_empty_oversize_and_disallowed_files(
+    upload_service: tuple[UploadService, str, Path],
+) -> None:
+    service, project_id, _ = upload_service
+    with pytest.raises(UploadValidationError, match="为空"):
+        service.save(project_id, "a.txt", b"")
+    with pytest.raises(UploadValidationError, match="大小限制"):
+        service.save(project_id, "a.txt", b"x" * 33)
+    with pytest.raises(UploadValidationError, match="扩展名"):
+        service.save(project_id, "macro.docm", b"x")
+
+
+def test_path_traversal_is_sanitized_and_confined(
+    upload_service: tuple[UploadService, str, Path],
+) -> None:
+    service, project_id, _ = upload_service
+    target = service.save(project_id, "../../outside.txt", b"safe")
+    uploads = service.manager.uploads_dir(project_id).resolve()
+    assert target.resolve().parent == uploads
+    assert target.name == "outside.txt"
+    assert target.read_bytes() == b"safe"
+
+
+def test_invalid_docx_parse_is_isolated(
+    upload_service: tuple[UploadService, str, Path],
+) -> None:
+    service, project_id, _ = upload_service
+    result = service.ingest_document(project_id, "broken.docx", b"not-a-zip")
+    assert result["chunk_count"] == 0
+    assert result["warning"]
+    assert service.manager.list_documents(project_id)
