@@ -20,12 +20,14 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3:8b"
+    ollama_model: str = "qwen3.5:4b"
     ollama_extraction_model: str = "qwen3:8b"
-    ollama_review_model: str = "qwen3:8b"
+    ollama_review_model: str = "qwen3.5:4b"
     ollama_embed_model: str = "nomic-embed-text"
     ollama_vision_model: str = "qwen2.5vl:3b"
     ollama_timeout: int = Field(default=120, ge=1, le=3600)
+    ollama_num_ctx: int = Field(default=8192, ge=2048, le=131072)
+    ollama_structured_num_predict: int = Field(default=2048, ge=256, le=16384)
     ollama_max_retries: int = Field(default=2, ge=0, le=10)
     ollama_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     ollama_extraction_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
@@ -134,6 +136,8 @@ OLLAMA_REVIEW_MODEL = settings.ollama_review_model
 OLLAMA_EMBED_MODEL = settings.ollama_embed_model
 OLLAMA_VISION_MODEL = settings.ollama_vision_model
 OLLAMA_TIMEOUT = settings.ollama_timeout
+OLLAMA_NUM_CTX = settings.ollama_num_ctx
+OLLAMA_STRUCTURED_NUM_PREDICT = settings.ollama_structured_num_predict
 OLLAMA_MAX_RETRIES = settings.ollama_max_retries
 OLLAMA_VISION_TIMEOUT = settings.ollama_vision_timeout
 OLLAMA_VISION_IMAGE_MAX_SIDE = settings.ollama_vision_image_max_side

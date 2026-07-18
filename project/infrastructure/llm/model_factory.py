@@ -35,6 +35,7 @@ class OllamaModelFactory:
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
         streaming: Optional[bool] = None,
+        num_ctx: Optional[int] = None,
     ) -> Any:
         """Create one ChatOllama model for the requested purpose."""
         if not self.settings.enable_ollama:
@@ -55,6 +56,8 @@ class OllamaModelFactory:
         effective_temperature = (
             temperature if temperature is not None else default_temperature
         )
+        context_window = num_ctx if num_ctx is not None else self.settings.ollama_num_ctx
+        fixed_structured_task = purpose in {ModelPurpose.EXTRACTION, ModelPurpose.REVIEW}
         return ChatOllama(
             model=model_name,
             base_url=self.settings.ollama_base_url,
@@ -62,6 +65,13 @@ class OllamaModelFactory:
             max_retries=retry_count,
             disable_streaming=not stream_enabled,
             validate_model_on_init=False,
+            num_ctx=context_window,
+            num_predict=(
+                self.settings.ollama_structured_num_predict
+                if fixed_structured_task
+                else None
+            ),
+            reasoning=False if fixed_structured_task else None,
             client_kwargs={"timeout": request_timeout},
         )
 

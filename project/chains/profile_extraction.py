@@ -6,6 +6,7 @@ import logging
 from typing import Callable, Optional
 
 import httpx
+from ollama import ResponseError
 import requests
 from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
@@ -16,7 +17,7 @@ from domain.exceptions import (
     ModelUnavailableError,
     StructuredOutputError,
 )
-from domain.schemas.project import ProjectProfile
+from domain.schemas.project import ExtractedProjectProfile, ProjectProfile
 from infrastructure.llm.model_factory import OllamaModelFactory
 from infrastructure.llm.ollama_health import OllamaHealthClient
 from prompts.profile_extraction import profile_extraction_prompt
@@ -62,7 +63,7 @@ class ProfileExtractionChain:
         try:
             model = self._model or OllamaModelFactory(self.settings).extraction_model()
             runnable = profile_extraction_prompt() | model.with_structured_output(
-                ProjectProfile
+                ExtractedProjectProfile
             )
             result = runnable.invoke(
                 {
@@ -70,16 +71,38 @@ class ProfileExtractionChain:
                     "document_text": source[:18000],
                 }
             )
-            profile = (
+            extracted = (
                 result
-                if isinstance(result, ProjectProfile)
-                else ProjectProfile.model_validate(result)
+                if isinstance(result, ExtractedProjectProfile)
+                else ExtractedProjectProfile.model_validate(result)
             )
-            return profile.model_copy(update={"generation_mode": "structured_output"})
+            profile_data = extracted.model_dump()
+            profile_data["project_name"] = (
+                extracted.project_name or project_name_hint.strip()
+            )
+            return ProjectProfile(**profile_data, generation_mode="structured_output")
         except (TimeoutError, requests.Timeout, httpx.TimeoutException) as exc:
             LOGGER.exception("Project profile extraction timed out")
             return self._fallback(
                 fallback, source, project_name_hint, "timeout", repr(exc)
+            )
+        except ResponseError as exc:
+            failure_type = (
+                "model_unavailable"
+                if exc.status_code < 0 or exc.status_code >= 500
+                else "structured_output_error"
+            )
+            detail = self._error_detail(exc)
+            LOGGER.warning(
+                "Project profile Ollama request failed; using rule fallback: %s",
+                detail,
+            )
+            return self._fallback(
+                fallback,
+                source,
+                project_name_hint,
+                failure_type,
+                detail,
             )
         except (
             requests.ConnectionError,
@@ -99,18 +122,25 @@ class ProfileExtractionChain:
             StructuredOutputError,
         ) as exc:
             LOGGER.exception("Project profile structured output validation failed")
+            detail = self._error_detail(exc)
             return self._fallback(
                 fallback,
                 source,
                 project_name_hint,
                 "structured_output_error",
-                repr(exc),
+                detail,
             )
         except Exception as exc:
             LOGGER.exception("Unexpected project profile extraction failure")
             raise StructuredOutputError(
                 f"Unexpected profile extraction failure: {exc!r}"
             ) from exc
+
+    @staticmethod
+    def _error_detail(exc: Exception) -> str:
+        if isinstance(exc, ResponseError):
+            return f"ResponseError(status_code={exc.status_code}, error={exc.error!r})"
+        return repr(exc)
 
     @staticmethod
     def _fallback(

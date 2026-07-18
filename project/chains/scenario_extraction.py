@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 import httpx
+from ollama import ResponseError
 import requests
 from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
@@ -115,6 +116,25 @@ class ScenarioExtractionChain:
             return self._fallback(
                 fallback, project_id, chunks, requirements, "timeout", repr(exc)
             )
+        except ResponseError as exc:
+            failure_type = (
+                "model_unavailable"
+                if exc.status_code < 0 or exc.status_code >= 500
+                else "structured_output_error"
+            )
+            detail = self._error_detail(exc)
+            LOGGER.warning(
+                "Scenario extraction Ollama request failed; using rule fallback: %s",
+                detail,
+            )
+            return self._fallback(
+                fallback,
+                project_id,
+                chunks,
+                requirements,
+                failure_type,
+                detail,
+            )
         except (
             requests.ConnectionError,
             httpx.ConnectError,
@@ -144,13 +164,19 @@ class ScenarioExtractionChain:
                 chunks,
                 requirements,
                 "structured_output_error",
-                repr(exc),
+                self._error_detail(exc),
             )
         except Exception as exc:
             LOGGER.exception("Unexpected scenario extraction failure")
             raise StructuredOutputError(
                 f"Unexpected scenario extraction failure: {exc!r}"
             ) from exc
+
+    @staticmethod
+    def _error_detail(exc: Exception) -> str:
+        if isinstance(exc, ResponseError):
+            return f"ResponseError(status_code={exc.status_code}, error={exc.error!r})"
+        return repr(exc)
 
     @staticmethod
     def _scope_cards(

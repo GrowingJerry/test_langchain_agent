@@ -1,11 +1,12 @@
 """Unit tests for extraction generation metadata without a live Ollama service."""
 
 from langchain_core.runnables import RunnableLambda
+from ollama import ResponseError
 
 from chains.profile_extraction import ProfileExtractionChain
 from chains.scenario_extraction import ScenarioExtractionChain
 from config.settings import Settings
-from domain.schemas.project import ProjectProfile
+from domain.schemas.project import ExtractedProjectProfile, ProjectProfile
 from domain.schemas.scenario import ScenarioCard
 
 
@@ -51,10 +52,18 @@ def test_profile_model_disabled_records_fallback_reason() -> None:
 
 
 def test_profile_structured_output() -> None:
-    expected = ProjectProfile(project_name="结构化项目", test_object="系统")
+    expected = ExtractedProjectProfile(project_name="结构化项目", test_object="系统")
     chain = ProfileExtractionChain(Settings(), StructuredModel(expected), Health(True))
     result = chain.run("资料", "提示", fallback_profile)
     assert result.project_name == "结构化项目"
+    assert result.generation_mode == "structured_output"
+
+
+def test_profile_structured_output_uses_known_project_name_hint_when_empty() -> None:
+    expected = ExtractedProjectProfile(test_object="系统")
+    chain = ProfileExtractionChain(Settings(), StructuredModel(expected), Health(True))
+    result = chain.run("资料", "已知项目名称", fallback_profile)
+    assert result.project_name == "已知项目名称"
     assert result.generation_mode == "structured_output"
 
 
@@ -76,6 +85,17 @@ def test_profile_timeout_records_failure_type() -> None:
     assert "slow model" in result.failure_message
 
 
+def test_profile_ollama_response_error_uses_recorded_fallback() -> None:
+    chain = ProfileExtractionChain(
+        Settings(), FailingStructuredModel(ResponseError("", 502)), Health(True)
+    )
+    result = chain.run("资料", "项目", fallback_profile)
+    assert result.generation_mode == "rule_fallback"
+    assert result.failure_type == "model_unavailable"
+    assert "status_code=502" in result.failure_message
+    assert "error=''" in result.failure_message
+
+
 def test_scenario_unavailable_records_fallback_reason() -> None:
     def fallback(project_id, chunks, requirements):
         return [
@@ -89,3 +109,16 @@ def test_scenario_unavailable_records_fallback_reason() -> None:
     )
     assert result.generation_mode == "rule_fallback"
     assert result.failure_type == "model_unavailable"
+
+
+def test_scenario_ollama_response_error_uses_recorded_fallback() -> None:
+    def fallback(project_id, chunks, requirements):
+        return [ScenarioCard(scenario_id="S1", project_id=project_id, scenario_name="规则场景")]
+
+    chain = ScenarioExtractionChain(
+        Settings(), FailingStructuredModel(ResponseError("bad format", 400)), Health(True)
+    )
+    result = chain.run("P1", [], [], fallback)
+    assert result.generation_mode == "rule_fallback"
+    assert result.failure_type == "structured_output_error"
+    assert "status_code=400" in result.failure_message
