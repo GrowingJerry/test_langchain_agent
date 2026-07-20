@@ -1,8 +1,8 @@
 """Generation run, context, case, and quality persistence."""
 
-import json
 from typing import Any, Dict, List, Optional
 
+from infrastructure.db.json_codec import dumps_json, loads_json
 from infrastructure.db.repositories.base import BaseRepository, new_id, now_iso
 from infrastructure.db.repositories.trace_repository import TraceRepository
 
@@ -28,7 +28,7 @@ class GenerationRepository(BaseRepository):
                     project_id,
                     requirement_id,
                     case_type,
-                    json.dumps(context, ensure_ascii=False, default=str),
+                    dumps_json(context),
                     now_iso(),
                 ),
             )
@@ -57,9 +57,9 @@ class GenerationRepository(BaseRepository):
                     case_id,
                     context_id,
                     float(result.get("score") or 0),
-                    json.dumps(result.get("dimensions", {}), ensure_ascii=False),
-                    json.dumps(result.get("issues", []), ensure_ascii=False),
-                    json.dumps(result.get("suggestions", []), ensure_ascii=False),
+                    dumps_json(result.get("dimensions", {})),
+                    dumps_json(result.get("issues", [])),
+                    dumps_json(result.get("suggestions", [])),
                     now_iso(),
                 ),
             )
@@ -79,10 +79,7 @@ class GenerationRepository(BaseRepository):
                 ("issues_json", "issues", []),
                 ("suggestions_json", "suggestions", []),
             ):
-                try:
-                    item[target] = json.loads(item.get(column) or json.dumps(default))
-                except json.JSONDecodeError:
-                    item[target] = default
+                item[target] = loads_json(item.get(column), default)
             result.append(item)
         return result
 
@@ -146,9 +143,9 @@ class GenerationRepository(BaseRepository):
                     project_id,
                     requirement_id,
                     case_type,
-                    json.dumps(chunk_ids, ensure_ascii=False),
+                    dumps_json(chunk_ids),
                     generation_run_id,
-                    json.dumps(case_data, ensure_ascii=False),
+                    dumps_json(case_data),
                     now_iso(),
                 ),
             )
@@ -164,9 +161,6 @@ class GenerationRepository(BaseRepository):
         result = []
         for row in rows:
             item = dict(row)
-            try:
-                item["case_json"] = json.loads(item.get("case_json") or "{}")
-            except json.JSONDecodeError:
-                item["case_json"] = {}
+            item["case_json"] = loads_json(item.get("case_json"), {})
             result.append(item)
         return result

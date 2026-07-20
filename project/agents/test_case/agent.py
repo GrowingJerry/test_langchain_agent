@@ -90,6 +90,7 @@ class TestCaseAgent:
             request.case_count,
             request.case_type,
             request.additional_instructions,
+            request.scenario_ids,
         )
         try:
             state = self.graph.invoke(
@@ -165,7 +166,7 @@ class TestCaseAgent:
                 item for item in case.scenario_ids if item in allowed_scenarios
             ]
             missing = list(case.missing_information)
-            if not requirement_ids:
+            if request.requirement_ids and not requirement_ids:
                 missing.append("关联需求")
             if not scenario_ids:
                 missing.append("关联场景")
@@ -204,6 +205,18 @@ class TestCaseAgent:
                 "used_tool_names": list(self.runtime.used_tool_names),
                 "retrieved_source_chunk_ids": list(
                     self.runtime.retrieved_source_chunk_ids
+                ),
+                "knowledge_unit_ids": list(
+                    self.runtime.retrieved_knowledge_unit_ids
+                ),
+                "equipment_ids": list(self.runtime.retrieved_equipment_ids),
+                "configuration_rule_ids": list(
+                    self.runtime.retrieved_configuration_rule_ids
+                ),
+                "scenario_validation_run_id": (
+                    self.runtime.retrieved_scenario_validation_run_ids[-1]
+                    if self.runtime.retrieved_scenario_validation_run_ids
+                    else ""
                 ),
                 "warnings": list(dict.fromkeys(warnings)),
             }

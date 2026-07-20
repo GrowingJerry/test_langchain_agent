@@ -12,6 +12,7 @@ from infrastructure.db.migrations import migrate_database
 from infrastructure.db.repositories.base import new_id, now_iso
 from infrastructure.db.repositories.chunk_repository import ChunkRepository
 from infrastructure.db.repositories.document_repository import DocumentRepository
+from infrastructure.db.repositories.equipment_repository import EquipmentRepository
 from infrastructure.db.repositories.generation_repository import GenerationRepository
 from infrastructure.db.repositories.profile_repository import ProfileRepository
 from infrastructure.db.repositories.project_repository import ProjectRepository
@@ -43,6 +44,7 @@ class ProjectManager:
         migrate_database(self.connections)
         self.projects = ProjectRepository(self.connections)
         self.documents = DocumentRepository(self.connections)
+        self.equipment = EquipmentRepository(self.connections)
         self.chunks = ChunkRepository(self.connections)
         self.profiles = ProfileRepository(self.connections)
         self.requirements = RequirementRepository(self.connections)
@@ -82,9 +84,31 @@ class ProjectManager:
         return self.projects.get(project_id)
 
     def add_document(
-        self, project_id: str, filename: str, file_type: str, file_path: Path
+        self,
+        project_id: str,
+        filename: str,
+        file_type: str,
+        file_path: Path,
+        file_hash: str = "",
+        parser_type: str = "",
     ) -> str:
-        return self.documents.add(project_id, filename, file_type, file_path)
+        return self.documents.add(
+            project_id, filename, file_type, file_path, file_hash, parser_type
+        )
+
+    def get_document_by_hash(
+        self, project_id: str, file_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        return self.documents.get_by_hash(project_id, file_hash)
+
+    def save_document_parse_progress(
+        self,
+        project_id: str,
+        document_id: str,
+        report: Dict[str, Any],
+        status: str = "processing",
+    ) -> None:
+        self.documents.save_parse_progress(project_id, document_id, report, status)
 
     def list_documents(self, project_id: str) -> List[Dict[str, Any]]:
         return self.documents.list(project_id)
@@ -115,6 +139,18 @@ class ProjectManager:
         self, project_id: str, document_id: str, chunks: List[Any]
     ) -> List[str]:
         return self.chunks.replace(project_id, document_id, chunks)
+
+    def append_chunks(
+        self,
+        project_id: str,
+        document_id: str,
+        chunks: List[Any],
+        parse_report: Optional[Dict[str, Any]] = None,
+        processing_status: str = "processing",
+    ) -> List[str]:
+        return self.chunks.append(
+            project_id, document_id, chunks, parse_report, processing_status
+        )
 
     def save_chunk_embedding(
         self,

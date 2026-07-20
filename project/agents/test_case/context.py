@@ -23,6 +23,10 @@ class AgentRuntimeContext:
     retrieved_source_chunk_ids: List[str] = field(default_factory=list, init=False)
     retrieved_source_documents: List[str] = field(default_factory=list, init=False)
     retrieved_scenario_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_knowledge_unit_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_equipment_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_configuration_rule_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_scenario_validation_run_ids: List[str] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         self.project_id = str(self.project_id or "").strip()
@@ -54,8 +58,33 @@ class AgentRuntimeContext:
             if scenario_id and scenario_id not in self.retrieved_scenario_ids:
                 self.retrieved_scenario_ids.append(scenario_id)
 
+    @staticmethod
+    def _record_unique(target: List[str], values: List[str]) -> None:
+        for value in values:
+            if value and value not in target:
+                target.append(value)
+
+    def record_knowledge(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_knowledge_unit_ids, values)
+
+    def record_equipment(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_equipment_ids, values)
+
+    def record_rules(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_configuration_rule_ids, values)
+
+    def record_validation_runs(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_scenario_validation_run_ids, values)
+
+    def record_source_refs(self, refs: List[dict[str, Any]]) -> None:
+        self.record_chunks([str(ref.get("chunk_id") or "") for ref in refs])
+
     def reset_observations(self) -> None:
         self.used_tool_names.clear()
         self.retrieved_source_chunk_ids.clear()
         self.retrieved_source_documents.clear()
         self.retrieved_scenario_ids.clear()
+        self.retrieved_knowledge_unit_ids.clear()
+        self.retrieved_equipment_ids.clear()
+        self.retrieved_configuration_rule_ids.clear()
+        self.retrieved_scenario_validation_run_ids.clear()

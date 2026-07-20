@@ -1,19 +1,8 @@
-# 测试与质量门禁
+# 测试与本地评测
 
-默认测试不要求 Ollama 在线：
+## 完整质量门禁
 
-```powershell
-pytest -m "not ollama"
-```
-
-可选本地集成测试：
-
-```powershell
-$env:RUN_OLLAMA_TESTS="1"
-pytest -m ollama
-```
-
-最终门禁：
+在 `conda activate test_agent` 后运行：
 
 ```powershell
 python scripts/check_environment.py
@@ -21,10 +10,30 @@ python -m compileall -q .
 pytest -m "not ollama"
 python scripts/smoke_test.py
 python scripts/validate_scenario_agent.py
+python scripts/evaluate_scenario_pipeline.py
 python -m pip check
 python -m ruff check .
 ```
 
-测试覆盖领域 schema、模型工厂、Ollama health、抽取 Chain、项目检索、Agent 工具与调用限制、GenerationService fallback、数据库迁移、上传安全、UI 幂等状态、structured review、Excel/Word 导出及需求—用例—来源闭环。数据库测试只能使用临时目录。
+Ollama 测试用 marker 隔离，只有本地模型准备完成时运行：
 
-人工脚本保留为 smoke 入口，其核心断言同时由 pytest 的 repository、retriever、generation 和导出测试覆盖。不得为通过门禁屏蔽测试、删除断言或扩大异常捕获。
+```powershell
+$env:RUN_OLLAMA_TESTS="1"
+pytest -m ollama
+```
+
+## Golden 评测
+
+固定数据位于 `tests/golden/scenario_cases.jsonl` 和 `equipment_allocations.jsonl`。运行：
+
+```powershell
+python scripts/evaluate_scenario_pipeline.py
+```
+
+脚本输出 JSON 和 Markdown 报告。指标包括场景字段完整率、来源覆盖、不支持事实、装备角色覆盖、数量追踪、参数单位条件、跨项目泄漏、阻断识别、书籍覆盖、步骤对应、重复运行稳定性和人工修改比例。
+
+硬门槛不可弱化：跨项目泄漏率、无来源数量填充率、approved 项目事实被书籍覆盖率必须为 0；来源引用有效率必须为 100%。
+
+## 测试数据纪律
+
+数据库测试只能使用 pytest 临时目录。不得指向正式 `outputs/sqlite`；不得为通过测试删除断言、扩大异常捕获或跳过失败用例。

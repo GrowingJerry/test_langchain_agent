@@ -1,44 +1,21 @@
 # 测试用例 Agent 设计
 
-## 为什么只有用例生成使用 Agent
+## 职责边界
 
-测试用例生成需要根据需求、场景、来源文档、测试方法和历史写作参考动态决定检索顺序与工具选择，适合使用 Agent。画像抽取、场景抽取和审查的步骤固定、输出固定，应使用 Chain，避免开放式 Agent 带来的不确定调用和额外风险。
+场景编译不是自由规划 Agent，而是确定性工作流加可选结构化 Chain。TestCase Agent 只能把已编译场景、批准知识和项目资料组织为用例，不能决定装备是否适用、不能计算装备数量、不能用书籍示例参数覆盖项目参数。
 
-## LangChain v1
+## 只读工具
 
-Agent 使用 `langchain.agents.create_agent`、`ChatOllama` 和 Pydantic structured output。不使用 `AgentExecutor`、`initialize_agent`、`create_react_agent` 或自定义 ReAct 循环。
+基础工具读取画像、需求、项目文档、关联场景、测试方法和历史写作参考。领域工具读取 approved 知识、仿真模型、状态转换、已验证参数、approved 模板、装备候选、场景装备分配、场景校验和 approved 反馈规则。工具均由 `AgentRuntimeContext` 闭包绑定项目；GLOBAL 数据要求显式开关。
 
-## 工具
+## 来源清洗
 
-- `get_project_profile`
-- `get_requirement_context`
-- `search_project_documents`
-- `get_related_scenarios`
-- `get_test_method_guidance`
-- `get_reference_cases`
+模型声明不直接成为 provenance。运行时记录实际调用工具及实际返回的 chunk、知识、装备、配置规则、场景和校验运行 ID，最终只保留这些交集。候选装备不能表述为批准配置；批准配置必须来自已编译场景分配结果。
 
-工具只读。历史用例工具明确标记为“仅作方法和格式参考”。文档检索返回 chunk ID、文档名及位置元数据。
+## 调用限制与降级
 
-## 项目作用域隔离
+模型调用、工具调用、模型重试、工具重试和 structured output 重试均由 Settings 限制。Agent、Ollama、工具或结构化输出失败时，`GenerationService` 使用 `rule_fallback` 并记录 `fallback_reason`。不会把降级伪装成 Agent 成功。
 
-`AgentRuntimeContext` 在创建时绑定 `project_id`。工具参数不包含任意 `project_id`，所有查询通过闭包和项目绑定 retriever 执行；返回前再次校验结果项目 ID。
+## 输出约束
 
-## Structured output
-
-Agent 输出为 `GeneratedCaseBundle`，包含 `cases`、`overall_missing_information`、`used_tool_names`、`retrieved_source_chunk_ids` 和 `warnings`。用例字段由领域 Pydantic schema 校验，不从自由文本中截取或修复 JSON。
-
-## Fallback
-
-以下情况由上层 `GenerationService` 转入规则模式：Agent 被关闭、Ollama 不可用或模型缺失、Agent/工具超限、超时、工具异常、structured output 校验失败。结果标记 `generation_mode=rule_fallback` 并记录可读 `fallback_reason`。
-
-## 调用限制
-
-模型调用数、工具调用数、模型重试、工具重试和 structured output 重试均由 Settings 限制。Agent 不实现无限循环；超限抛出领域异常。
-
-## 来源追溯
-
-当前项目文档是事实来源。每条用例关联 requirement、scenario、source chunk 和 source document；保存用例时同时保存 `trace_sources`。历史用例 ID 不作为当前项目事实来源。
-
-## 人工审核边界
-
-缺失接口、阈值、状态、设备、参数或环境时设置 `need_human_confirm` 和 `missing_information`。规则审查、六性质量评价和 structured LLM review 只返回状态与建议，不自动修改原用例；修改必须由用户显式确认。
+`GeneratedCaseBundle` 使用 Pydantic v2，包含用例、缺失信息、实际工具、chunk、知识、装备、配置规则及场景校验运行。测试步骤和预期结果必须一一对应；缺失事实时设置 `need_human_confirm`。

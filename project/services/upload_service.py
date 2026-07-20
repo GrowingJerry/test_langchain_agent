@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 from typing import Any, Dict
 
 from config.settings import Settings, settings as default_settings
-from core.document_ingestor import SUPPORTED_TYPES, build_document_chunks, safe_filename
+from core.document_ingestor import (
+    SUPPORTED_TYPES,
+    safe_filename,
+    save_and_ingest_document,
+)
+from learning.job_service import DocumentJobService
 
 HISTORY_TYPES = {".xlsx", ".csv", ".json"}
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".webp"}
@@ -66,31 +72,78 @@ class UploadService:
     def ingest_document(
         self, project_id: str, filename: str, content: bytes
     ) -> Dict[str, object]:
-        target = self.save(project_id, filename, content, SUPPORTED_TYPES)
+        clean = self.validate(filename, content, SUPPORTED_TYPES)
+        if self._requires_background(clean, content):
+            return self._enqueue_document(project_id, clean, content)
         try:
-            chunks, text_chars, warning = build_document_chunks(target)
-        except Exception as exc:
-            # Parser libraries expose different exception types; this is the single
-            # isolation boundary and the diagnostic context is returned to the UI.
-            chunks, text_chars, warning = (
-                [],
-                0,
-                f"文档解析失败：{type(exc).__name__}: {exc}",
+            result = save_and_ingest_document(
+                self.manager, project_id, filename, content
             )
-        if text_chars > self.settings.document_max_chars:
+        except Exception as exc:
+            raise UploadValidationError(
+                f"文档解析或入库失败：{type(exc).__name__}: {exc}"
+            ) from exc
+        if (
+            int(result.get("text_chars") or 0) > self.settings.document_max_chars
+            and Path(filename).suffix.lower() != ".pdf"
+        ):
             raise UploadValidationError("解析文本超过资源限制")
-        document_id = self.manager.add_document(
-            project_id, target.name, target.suffix.lstrip("."), target
+        return result
+
+    def _requires_background(self, filename: str, content: bytes) -> bool:
+        if len(content) >= self.settings.background_document_bytes_threshold:
+            return True
+        if Path(filename).suffix.lower() != ".pdf":
+            return False
+        try:
+            import fitz
+
+            with fitz.open(stream=content, filetype="pdf") as document:
+                return document.page_count >= self.settings.background_document_page_threshold
+        except Exception:
+            return False
+
+    def _enqueue_document(
+        self, project_id: str, filename: str, content: bytes
+    ) -> Dict[str, object]:
+        content_hash = hashlib.sha256(content).hexdigest()
+        existing = self.manager.get_document_by_hash(project_id, content_hash)
+        if existing:
+            document_id = str(existing["document_id"])
+            target = Path(str(existing["file_path"]))
+        else:
+            target = self.save(project_id, filename, content, SUPPORTED_TYPES)
+            document_id = self.manager.add_document(
+                project_id,
+                target.name,
+                target.suffix.lstrip("."),
+                target,
+                content_hash,
+                "pymupdf" if target.suffix.lower() == ".pdf" else target.suffix.lstrip("."),
+            )
+        total_pages = 0
+        if target.suffix.lower() == ".pdf":
+            try:
+                import fitz
+
+                with fitz.open(target) as document:
+                    total_pages = document.page_count
+            except Exception:
+                total_pages = 0
+        job = DocumentJobService(self.manager).create_job(
+            project_id, document_id, total_pages
         )
-        chunk_ids = self.manager.replace_chunks(project_id, document_id, chunks)
         return {
             "document_id": document_id,
             "filename": target.name,
             "file_path": str(target),
-            "text_chars": text_chars,
-            "chunk_count": len(chunk_ids),
+            "file_hash": content_hash,
+            "chunk_count": 0,
             "embedding_count": 0,
-            "warning": warning or ("文件未解析出有效文本" if not chunks else ""),
+            "background": True,
+            "job_id": job["job_id"],
+            "job_status": job["status"],
+            "warning": "文档已进入后台处理队列",
         }
 
     def save_history(self, project_id: str, filename: str, content: bytes) -> Path:

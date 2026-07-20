@@ -1,8 +1,8 @@
 """Project profile persistence."""
 
-import json
 from typing import Any, Dict, Optional
 
+from infrastructure.db.json_codec import dumps_json, loads_json
 from infrastructure.db.repositories.base import BaseRepository, now_iso
 
 
@@ -22,10 +22,10 @@ class ProfileRepository(BaseRepository):
                     profile.get("domain", ""),
                     profile.get("test_object", ""),
                     *(
-                        json.dumps(profile.get(key, []), ensure_ascii=False)
+                        dumps_json(profile.get(key, []))
                         for key in self._LIST_FIELDS
                     ),
-                    json.dumps(profile, ensure_ascii=False),
+                    dumps_json(profile),
                     now_iso(),
                 ),
             )
@@ -39,8 +39,5 @@ class ProfileRepository(BaseRepository):
             return None
         item = dict(row)
         for key in self._LIST_FIELDS:
-            try:
-                item[key] = json.loads(item.get(key) or "[]")
-            except json.JSONDecodeError:
-                item[key] = []
+            item[key] = loads_json(item.get(key), [])
         return item

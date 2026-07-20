@@ -35,7 +35,7 @@ class GenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(min_length=1)
-    requirement_ids: List[str] = Field(min_length=1)
+    requirement_ids: List[str] = Field(default_factory=list)
     scenario_ids: List[str] = Field(default_factory=list)
     case_type: str = "功能测试"
     case_count: int = Field(default=1, ge=1, le=20)
@@ -53,6 +53,8 @@ class GenerationRequest(BaseModel):
             raise ValueError("manual mode requires manual_cases")
         if self.requested_mode != "manual" and self.manual_cases:
             raise ValueError("manual_cases are only accepted in manual mode")
+        if not self.requirement_ids and not self.scenario_ids:
+            raise ValueError("requirement_ids or scenario_ids is required")
         return self
 
 
@@ -141,6 +143,7 @@ class GenerationService:
                     bundle = self.agent_builder(runtime).generate(
                         TestCaseAgentRequest(
                             requirement_ids=request.requirement_ids,
+                            scenario_ids=request.scenario_ids,
                             case_count=request.case_count,
                             case_type=request.case_type,
                             additional_instructions=request.additional_instructions,
@@ -227,7 +230,7 @@ class GenerationService:
                 )
 
     def _build_contexts(self, request: GenerationRequest) -> List[Dict[str, Any]]:
-        return [
+        contexts = [
             self.context_builder.build(
                 request.project_id,
                 requirement_id,
@@ -240,6 +243,45 @@ class GenerationService:
             )
             for requirement_id in request.requirement_ids
         ]
+        if contexts:
+            return contexts
+        cards = {
+            str(row.get("scenario_id") or ""): row
+            for row in self.manager.list_scenario_cards(request.project_id)
+        }
+        chunks = self.manager.list_chunks(request.project_id, 5000)
+        result = []
+        for scenario_id in request.scenario_ids:
+            scenario = dict(cards[scenario_id])
+            source_ids = set(scenario.get("source_chunk_ids") or [])
+            related_chunks = [row for row in chunks if row.get("chunk_id") in source_ids]
+            scenario.setdefault("scenario_name", scenario.get("title") or scenario_id)
+            scenario.setdefault(
+                "input_data", list((scenario.get("controllable_variables") or {}).keys())
+            )
+            scenario.setdefault(
+                "environment", list((scenario.get("environment_variables") or {}).keys())
+            )
+            scenario.setdefault(
+                "trigger_event", "；".join(scenario.get("trigger_events") or [])
+            )
+            result.append({
+                "project_id": request.project_id, "requirement_id": "",
+                "case_type": request.case_type,
+                "project_profile": self.manager.get_profile(request.project_id) or {},
+                "requirement": {
+                    "requirement_id": "", "title": scenario["scenario_name"],
+                    "description": scenario.get("scenario_goal", ""),
+                },
+                "related_chunks": related_chunks,
+                "related_scenario_cards": [scenario],
+                "matched_test_methods": [], "six_quality_attributes": [],
+                "similar_library_cases": [], "visual_evidence": [],
+                "missing_information": list(scenario.get("missing_information") or []),
+                "generation_constraints": ["必须按已批准场景生成，不得重算装备数量"],
+                "context_id": "",
+            })
+        return result
 
     def _preflight_fallback_reason(self, request: GenerationRequest) -> str:
         if request.requested_mode == "rule":
@@ -291,7 +333,7 @@ class GenerationService:
             requirement_id = (
                 case.requirement_ids[0]
                 if case.requirement_ids
-                else request.requirement_ids[0]
+                else (request.requirement_ids[0] if request.requirement_ids else "")
             )
             context = context_by_requirement.get(requirement_id) or contexts[0]
             persistence_data = self._to_persistence_data(

@@ -1,87 +1,61 @@
 # 项目级测试文档智能生成系统
 
-本项目使用 Streamlit、SQLite、Ollama 和 LangChain v1，按项目管理文档、画像、需求、场景、测试用例、审查、来源追溯及 Excel/Word 导出。当前项目文档是事实依据；历史用例只提供测试方法和写作格式参考。
+系统基于 Python 3.10、Streamlit、SQLite、Ollama 和 LangChain v1，提供项目文档入库、长文档学习、装备知识库、确定性场景编译、测试用例 Agent、审核追溯和本地评测。项目正式资料和 approved 知识是事实依据；书籍、历史用例和候选反馈不能覆盖当前项目已批准事实。
 
-## 运行要求
-
-- Python 固定为 3.10。
-- 依赖由 `requirements.txt` 和 `requirements-dev.txt` 管理。
-- 本项目不使用也不创建 `pyproject.toml`，不使用 Poetry、PDM 或 uv。
-- Ollama 在本地运行，云端追踪默认关闭。
-
-Windows 安装命令：
+## 安装与启动
 
 ```powershell
 cd project
-py -3.10 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
-```
-
-也可使用已清理的 Conda 环境：
-
-```powershell
 conda activate test_agent
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
-```
-
-## Ollama
-
-启动服务并准备模型：
-
-```powershell
-ollama serve
-ollama pull qwen3:8b
-ollama pull nomic-embed-text
-ollama list
-python scripts/check_environment.py
-```
-
-模型名称和地址由 `.env` 与 `config/settings.py` 统一管理。`ollama/` 目录保留可选的本地容器部署资产。
-
-## 普通模式与 Agent 模式
-
-- 普通模式：设置 `ENABLE_AGENT=false`，测试用例走确定性规则生成。
-- Agent 模式：设置 `ENABLE_AGENT=true` 且 `ENABLE_OLLAMA=true`，测试用例由 LangChain v1 `create_agent` 生成。
-- Ollama、工具、模型或 structured output 失败时，服务进入 `rule_fallback`，并保存 `fallback_reason`，不会伪装为 Agent 成功。
-- 画像、场景和审查是固定结构任务，使用 Chain；只有测试用例生成使用 Agent。
-
-启动应用：
-
-```powershell
 streamlit run app.py
 ```
 
-六个页面保持为：项目工作台、文档与知识库、智能生成、结果审查与追溯、导出中心、系统设置。
+可选的 Docling 文档增强依赖单独位于 `requirements-docs.txt`；没有安装时默认 PyMuPDF 仍可工作。本项目不使用或建议使用 `pyproject.toml`。
 
-## 数据与备份
+## 主要用户流程
 
-默认数据库：
+1. 在“项目工作台”创建项目。
+2. 在“文档与知识库/项目文档”上传普通需求或技术书籍。大文件自动进入后台作业。
+3. 在“装备数据”上传 JSONL，选择当前项目或显式选择 `GLOBAL`。
+4. 在“场景学习”创建学习任务，选择文档和学习范围，抽取结构化知识。
+5. 在“知识审核”处理冲突并批准可用于生成的知识。
+6. 在“智能生成”输入最小场景意图，审核场景草稿、装备配置和阻断问题，再生成多条测试用例。
+7. 人工修改只形成反馈候选；只有人工批准的反馈规则才参与后续生成。
 
-```text
-outputs/sqlite/project_workspace.db
-outputs/sqlite/case_library.db
-```
+## 装备导入
 
-升级前先停止 Streamlit，再备份数据库：
-
-```powershell
-Copy-Item outputs\sqlite\project_workspace.db outputs\sqlite\project_workspace.backup.db
-Copy-Item outputs\sqlite\case_library.db outputs\sqlite\case_library.backup.db
-```
-
-启动应用或构造 `ProjectManager` 时会自动运行幂等、增量迁移。迁移只建表、增加缺失字段和索引，不删除既有表、字段或数据。可先在数据库副本上执行：
+导入器逐行读取真实 JSONL，保留原始载荷、文件、行号和稳定哈希：
 
 ```powershell
-python -c "from pathlib import Path; from core.project_manager import ProjectManager; ProjectManager(Path('outputs/sqlite/project_workspace.backup.db')); print('upgrade ok')"
+python scripts/import_military_jsonl.py --file data/military.jsonl --project-id GLOBAL
 ```
 
-详见 `docs/database_migrations.md`。
+`GLOBAL` 是组织级通用装备库。任何查询必须显式设置允许访问 GLOBAL，当前项目数据始终优先。详见 `project/docs/equipment_knowledge_base.md`。
 
-## 测试
+## 长文档与 Worker
+
+普通小文件同步处理；达到页数或字节阈值的大文件创建 `document_processing_jobs`。启动本地 SQLite Worker：
+
+```powershell
+python scripts/run_learning_worker.py
+```
+
+作业支持暂停、恢复、取消、失败重试和租约防重复领取。扫描页第一版只标记 `needs_ocr=true`。详见 `project/docs/project_learning.md`。
+
+## 数据库备份与升级
+
+升级前停止 Streamlit 和 Worker，然后复制数据库：
+
+```powershell
+Copy-Item project\outputs\sqlite\project_workspace.db project\outputs\sqlite\project_workspace.backup.db
+Copy-Item project\outputs\sqlite\case_library.db project\outputs\sqlite\case_library.backup.db
+```
+
+应用启动或构造 `ProjectManager` 时自动执行幂等、增量、非破坏迁移。迁移只新增表、字段和索引，不删除既有数据。应先在备份副本验证，详见 `project/docs/database_migrations.md`。
+
+## 测试与本地评测
 
 ```powershell
 python scripts/check_environment.py
@@ -89,27 +63,19 @@ python -m compileall -q .
 pytest -m "not ollama"
 python scripts/smoke_test.py
 python scripts/validate_scenario_agent.py
+python scripts/evaluate_scenario_pipeline.py
 python -m pip check
 python -m ruff check .
 ```
 
-可选的本地 Ollama 集成测试默认不运行：
+评测使用 `tests/golden/*.jsonl`，输出 `evaluation_report.json` 和 `evaluation_report.md`。硬门槛包括跨项目泄漏率、无来源数量填充率、书籍覆盖项目参数率均为 0，来源引用有效率为 100%。
 
-```powershell
-$env:RUN_OLLAMA_TESTS="1"
-pytest -m ollama
-```
+## 文档
 
-所有自动化数据库测试使用临时目录，不应指向正式 `outputs/sqlite` 数据库。更多信息见 `docs/testing.md`。
-
-## 安全和人工审核
-
-上传文件使用扩展名、大小、路径和解析资源限制。生成内容不得编造接口、阈值、状态、设备或环境；资料不足时必须设置 `need_human_confirm=true` 并填写 `missing_information`。审查只产生状态和建议，只有用户显式确认后才更新原用例。
-
-架构与兼容信息：
-
-- `docs/architecture.md`
-- `docs/agent_design.md`
-- `docs/database_migrations.md`
-- `docs/testing.md`
-- `docs/deprecation.md`
+- `project/docs/architecture.md`
+- `project/docs/agent_design.md`
+- `project/docs/database_migrations.md`
+- `project/docs/testing.md`
+- `project/docs/project_learning.md`
+- `project/docs/scenario_compiler.md`
+- `project/docs/equipment_knowledge_base.md`

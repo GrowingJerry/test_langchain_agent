@@ -5,5 +5,11 @@ from infrastructure.retrieval.embeddings import (
     OllamaEmbeddingProvider,
 )
 from infrastructure.retrieval.project_retriever import ProjectRetriever
+from infrastructure.retrieval.equipment_retriever import EquipmentRetriever
 
-__all__ = ["EmbeddingProvider", "OllamaEmbeddingProvider", "ProjectRetriever"]
+__all__ = [
+    "EmbeddingProvider",
+    "EquipmentRetriever",
+    "OllamaEmbeddingProvider",
+    "ProjectRetriever",
+]

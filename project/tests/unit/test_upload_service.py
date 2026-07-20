@@ -53,3 +53,23 @@ def test_invalid_docx_parse_is_isolated(
     assert result["chunk_count"] == 0
     assert result["warning"]
     assert service.manager.list_documents(project_id)
+
+
+def test_large_document_is_queued_without_synchronous_parse(
+    upload_service: tuple[UploadService, str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, project_id, _ = upload_service
+    monkeypatch.setattr(service, "_requires_background", lambda *_: True)
+    result = service.ingest_document(project_id, "book.pdf", b"pdf")
+    assert result["background"] is True
+    assert result["job_status"] == "pending"
+    jobs = service.manager.connections.connect()
+    try:
+        row = jobs.execute(
+            "SELECT status FROM document_processing_jobs WHERE job_id=?",
+            (result["job_id"],),
+        ).fetchone()
+    finally:
+        jobs.close()
+    assert row["status"] == "pending"

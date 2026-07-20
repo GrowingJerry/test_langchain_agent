@@ -1,8 +1,8 @@
 """Generated-case review persistence."""
 
-import json
 from typing import Any, Dict, List
 
+from infrastructure.db.json_codec import dumps_json, loads_json
 from infrastructure.db.repositories.base import BaseRepository, new_id, now_iso
 
 
@@ -28,7 +28,7 @@ class ReviewRepository(BaseRepository):
                     case_id,
                     review_type,
                     status,
-                    json.dumps(issues, ensure_ascii=False),
+                    dumps_json(issues),
                     now_iso(),
                 ),
             )
@@ -41,8 +41,5 @@ class ReviewRepository(BaseRepository):
             ).fetchall()
         result = [dict(row) for row in rows]
         for row in result:
-            try:
-                row["issues"] = json.loads(row.get("issues_json") or "[]")
-            except json.JSONDecodeError:
-                row["issues"] = []
+            row["issues"] = loads_json(row.get("issues_json"), [])
         return result

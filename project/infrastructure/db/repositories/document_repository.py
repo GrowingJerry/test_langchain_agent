@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from infrastructure.db.json_codec import dumps_json, loads_json
 from infrastructure.db.repositories.base import BaseRepository, new_id, now_iso
 
 
 class DocumentRepository(BaseRepository):
     def add(
-        self, project_id: str, filename: str, file_type: str, file_path: Path
+        self,
+        project_id: str,
+        filename: str,
+        file_type: str,
+        file_path: Path,
+        file_hash: str = "",
+        parser_type: str = "",
     ) -> str:
         document_id = new_id("DOC")
         with self.connections.transaction() as conn:
             conn.execute(
-                "INSERT INTO project_documents VALUES (?, ?, ?, ?, ?, ?)",
+                """INSERT INTO project_documents(
+                document_id,project_id,filename,file_type,file_path,created_at,
+                file_hash,parser_type,processing_status,last_processed_page
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (
                     document_id,
                     project_id,
@@ -24,6 +33,10 @@ class DocumentRepository(BaseRepository):
                     file_type,
                     str(file_path),
                     now_iso(),
+                    file_hash or None,
+                    parser_type,
+                    "pending",
+                    0,
                 ),
             )
             conn.execute(
@@ -31,6 +44,38 @@ class DocumentRepository(BaseRepository):
                 (now_iso(), project_id),
             )
         return document_id
+
+    def get_by_hash(self, project_id: str, file_hash: str) -> Dict[str, Any] | None:
+        if not file_hash:
+            return None
+        with self.connections.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM project_documents WHERE project_id=? AND file_hash=?",
+                (project_id, file_hash),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def save_parse_progress(
+        self,
+        project_id: str,
+        document_id: str,
+        report: Dict[str, Any],
+        status: str = "processing",
+    ) -> None:
+        with self.connections.transaction() as conn:
+            conn.execute(
+                """UPDATE project_documents SET parser_type=?,parse_report_json=?,
+                processing_status=?,last_processed_page=?
+                WHERE project_id=? AND document_id=?""",
+                (
+                    str(report.get("parser_type") or ""),
+                    dumps_json(report),
+                    status,
+                    int(report.get("last_completed_page") or 0),
+                    project_id,
+                    document_id,
+                ),
+            )
 
     def list(self, project_id: str) -> List[Dict[str, Any]]:
         with self.connections.connection() as conn:
@@ -129,11 +174,10 @@ class DocumentRepository(BaseRepository):
                     str(
                         data.get("evidence_type") or payload.get("evidence_type") or ""
                     ),
-                    json.dumps(payload, ensure_ascii=False),
+                    dumps_json(payload),
                     str(data.get("visible_text") or payload.get("visible_text") or ""),
-                    json.dumps(
-                        data.get("source_region") or payload.get("source_region") or {},
-                        ensure_ascii=False,
+                    dumps_json(
+                        data.get("source_region") or payload.get("source_region") or {}
                     ),
                     float(data.get("confidence") or payload.get("confidence") or 0),
                     int(
@@ -157,10 +201,7 @@ class DocumentRepository(BaseRepository):
             ("evidence_json", "evidence", {}),
             ("source_region", "source_region", {}),
         ):
-            try:
-                item[target] = json.loads(item.get(source) or json.dumps(default))
-            except json.JSONDecodeError:
-                item[target] = default
+            item[target] = loads_json(item.get(source), default)
         item["need_human_confirm"] = bool(item.get("need_human_confirm"))
         return item
 

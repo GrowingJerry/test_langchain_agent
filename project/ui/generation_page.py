@@ -1,252 +1,359 @@
-"""Scenario-adapted project generation Agent page."""
+"""Requirement-compatible and scenario-driven test-case generation page."""
+
+from __future__ import annotations
 
 import json
+from typing import Any
 
 import streamlit as st
 
-from core.six_quality_classifier import classify_requirement
-from core.test_method_matcher import match_test_methods
-from models.schemas import RequirementItem
 from services.generation_service import GenerationRequest
 from services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
 
-TEST_TYPES = [
-    "功能测试",
-    "性能测试",
-    "接口测试",
-    "异常测试",
-    "安全性",
-    "可靠性",
-    "维修性",
-    "保障性",
-    "测试性",
-    "环境适应性",
-]
+TEST_TYPES = ["功能测试", "性能测试", "接口测试", "异常测试", "安全性测试", "可靠性测试"]
 
 
-def _scenario_rows(cards):
+def _flat(value: Any) -> Any:
+    return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
+
+
+def _rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: _flat(value) for key, value in item.items()} for item in items]
+
+
+def _execution_mode(config: dict[str, Any], key: str) -> str:
+    selected = st.radio(
+        "生成执行模式",
+        ["Agent / 自动降级", "确定性规则"],
+        horizontal=True,
+        key=key,
+        help="保留模型和工具调用限制；Agent不可用时仍使用 rule_fallback。",
+    )
+    return "auto" if selected.startswith("Agent") and config["use_ollama"] else "rule"
+
+
+def _show_cases(payload: dict[str, Any], title: str) -> None:
+    result = payload.get("generation_result") or payload
+    st.subheader(title)
+    if result.get("fallback_reason"):
+        st.warning(f"已执行 rule_fallback：{result['fallback_reason']}")
+    missing = result.get("overall_missing_information") or []
+    if missing:
+        st.warning("缺失信息：" + "；".join(missing))
+    cases = result.get("cases") or []
+    if cases:
+        st.dataframe(
+            _rows([item.get("persistence_data") or item.get("case") or item for item in cases]),
+            hide_index=True,
+            use_container_width=True,
+        )
+        with st.expander("完整结构化结果"):
+            st.json(result)
+
+
+def _field_sources(scenario: dict[str, Any], provenance: dict[str, Any]) -> list[dict[str, Any]]:
+    automatic: list[str] = []
+    if provenance.get("source_chunk_ids"):
+        automatic.append("项目文档")
+    if provenance.get("knowledge_unit_ids"):
+        automatic.append("approved知识")
+    if provenance.get("template_id"):
+        automatic.append("approved场景模板")
+    inferred = "、".join(automatic) or "用户输入"
     return [
-        {
-            "场景编号": c.get("scenario_id"),
-            "场景名称": c.get("scenario_name"),
-            "类型": c.get("scenario_type"),
-            "关联需求": "、".join(c.get("related_requirements") or []),
-            "参与者": "、".join(c.get("actors") or []),
-            "触发事件": c.get("trigger_event"),
-            "接口": "、".join(c.get("external_interfaces") or []),
-            "来源片段": "、".join(c.get("source_chunk_ids") or []),
-            "置信度": c.get("confidence"),
-            "需确认": c.get("need_human_confirm"),
-        }
-        for c in cards
+        {"字段": "场景目标", "自动值": scenario.get("scenario_goal"), "来源类型": "用户输入"},
+        {"字段": "仿真对象", "自动值": scenario.get("simulation_object"), "来源类型": "用户输入"},
+        {"字段": "任务阶段", "自动值": scenario.get("mission_phase"), "来源类型": "用户输入"},
+        {"字段": "角色及功能", "自动值": scenario.get("role_requirements"), "来源类型": inferred},
+        {"字段": "前置条件", "自动值": scenario.get("preconditions"), "来源类型": inferred},
+        {"字段": "主流程", "自动值": scenario.get("normal_flow"), "来源类型": inferred},
+        {"字段": "异常流程", "自动值": scenario.get("abnormal_flows"), "来源类型": inferred},
+        {"字段": "恢复流程", "自动值": scenario.get("recovery_flow"), "来源类型": inferred},
+        {"字段": "可观测变量", "自动值": scenario.get("observed_variables"), "来源类型": inferred},
     ]
 
 
-def _table_value(value):
-    """Convert nested case fields to Arrow-friendly table values."""
-    if isinstance(value, (list, dict)):
-        return json.dumps(value, ensure_ascii=False)
-    return value
-
-
-def _case_table_rows(cases):
-    """Prepare generated cases for Streamlit dataframe display only."""
-    return [{key: _table_value(value) for key, value in case.items()} for case in cases]
-
-
-def render_generation_page(service, project_id, case_library, config) -> None:
-    st.header("智能生成 · 场景适配 Agent")
-    if not project_id:
-        st.info("请先创建项目。")
+def _show_allocations(scenario: dict[str, Any]) -> None:
+    st.subheader("第四步：装备配置与数量依据")
+    allocations = scenario.get("equipment_allocations") or []
+    if not allocations:
+        st.warning("未形成装备配置，相关角色需要人工确认。")
         return
-    c1, c2, c3 = st.columns(3)
-    if c1.button("1. 抽取 / 更新项目画像"):
-        text = service.combined_project_text(project_id)
-        if not text:
-            st.warning("没有可解析的项目文本。")
-        else:
-            service.extract_profile(project_id, config["use_ollama"])
-            st.rerun()
-    if c2.button("2. 抽取 / 更新需求点"):
-        rows = service.extract_requirements(project_id)
-        st.success(f"已抽取 {len(rows)} 条需求。")
-        st.rerun()
-    if c3.button("3. 抽取 / 更新场景卡片"):
-        cards = service.extract_scenarios(project_id, config["use_ollama"])
-        st.success(f"已抽取并保存 {len(cards)} 张场景卡片。")
-        st.rerun()
+    display = []
+    for allocation in allocations:
+        config = allocation.get("configuration") or {}
+        quantity = allocation.get("quantity")
+        rule_ids = allocation.get("rule_ids") or []
+        refs = allocation.get("source_refs") or []
+        display.append({
+            "角色": allocation.get("role_requirement_id"),
+            "装备ID": allocation.get("equipment_id"),
+            "数量": quantity if quantity is not None else "待确认",
+            "数量依据": config.get("formula_description") or "待确认",
+            "规则ID": rule_ids or "待确认",
+            "装备来源": "装备JSON" if any(ref.get("source_type") == "jsonl" for ref in refs) else "项目资料",
+            "数量来源": "配置规则" if rule_ids else "用户确认",
+            "需人工确认": bool(allocation.get("need_human_confirm") or quantity is None),
+        })
+    st.dataframe(_rows(display), hide_index=True, use_container_width=True)
+    with st.expander("装备配置完整来源"):
+        st.json(allocations)
 
-    profile = service.get_profile(project_id)
-    with st.expander("项目画像", expanded=False):
-        st.json(profile or {"状态": "尚未抽取"})
+
+def _difference_review(
+    service: Any, project_id: str, scenario: dict[str, Any], validation: dict[str, Any]
+) -> None:
+    st.subheader("第五步：阻断问题和待确认项")
+    scenario_id = scenario["scenario_id"]
+    blockers = validation.get("blocking_issues") or []
+    pending = list(dict.fromkeys([
+        *(validation.get("warnings") or []),
+        *(validation.get("missing_information") or []),
+        *(scenario.get("missing_information") or []),
+    ]))
+    resolutions: dict[str, str] = {}
+    if blockers:
+        st.error("阻断问题必须逐项处理后才能批准场景。")
+        for number, issue in enumerate(blockers, 1):
+            st.write(f"阻断 {number}：{issue}")
+            resolutions[issue] = st.text_input(
+                "处理说明或人工确认依据", key=f"blocker_{project_id}_{scenario_id}_{number}"
+            )
+    else:
+        st.success("当前没有阻断问题。")
+    if pending:
+        st.warning("待确认项：\n- " + "\n- ".join(pending))
+    accepted_key = f"accepted_suggestions_{project_id}_{scenario_id}"
+    st.session_state.setdefault(accepted_key, False)
+    if st.button("接受全部非阻断建议", key=f"accept_suggestions_{project_id}_{scenario_id}"):
+        st.session_state[accepted_key] = True
+        st.success("已记录接受全部非阻断建议。")
+    reviewer = st.text_input("审核人", key=f"reviewer_{project_id}_{scenario_id}")
+    draft_col, approve_col = st.columns(2)
+    review = dict(
+        accept_non_blocking=st.session_state[accepted_key],
+        blocking_resolutions=resolutions,
+        reviewer=reviewer,
+    )
+    if draft_col.button("保存场景草稿", key=f"save_draft_{project_id}_{scenario_id}"):
+        try:
+            service.review_compiled_scenario(project_id, scenario_id, approve=False, **review)
+            st.success("场景草稿和差异审核记录已保存。")
+        except ValueError as exc:
+            st.error(str(exc))
+    if approve_col.button(
+        "处理完成并批准场景", type="primary", key=f"approve_{project_id}_{scenario_id}"
+    ):
+        try:
+            service.review_compiled_scenario(project_id, scenario_id, approve=True, **review)
+            st.success("场景已批准。")
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+
+
+def _approved_generation(service: Any, project_id: str, case_library: Any, config: dict[str, Any]) -> None:
+    st.subheader("第六步：生成测试用例")
+    approved = service.list_compiled_scenarios(project_id, "approved")
+    if not approved:
+        st.info("尚无已批准场景。完成差异审核后即可直接生成多条测试用例。")
+        return
+    scenario = st.selectbox(
+        "已批准场景",
+        approved,
+        format_func=lambda row: f"{row.get('title')} · {row.get('scenario_category')}",
+        key=f"approved_scenario_{project_id}",
+    )
+    left, right = st.columns(2)
+    count = left.number_input("用例数量", 1, 20, 3, key=f"scenario_count_{project_id}")
+    case_type = right.selectbox("测试类型", TEST_TYPES, key=f"scenario_type_{project_id}")
+    mode = _execution_mode(config, f"scenario_exec_{project_id}")
+    history = st.checkbox(
+        "使用历史用例方法参考",
+        value=bool(config["use_library"]),
+        disabled=case_library is None,
+        key=f"scenario_history_{project_id}",
+    )
+    if st.button("从批准场景生成多条用例", type="primary", key=f"scenario_generate_{project_id}"):
+        try:
+            with st.status("正在生成测试用例", expanded=True) as status:
+                st.write("读取批准场景、装备配置和校验结果")
+                generated = service.generate_from_approved_scenario(
+                    project_id,
+                    scenario["scenario_id"],
+                    case_count=int(count),
+                    case_type=case_type,
+                    requested_mode=mode,
+                    use_history=history,
+                )
+                st.write("执行受限 Agent 或 rule_fallback")
+                st.session_state[f"scenario_result_{project_id}"] = generated.model_dump(mode="json")
+                status.update(label="生成完成", state="complete")
+        except Exception as exc:
+            st.error(f"生成失败：{type(exc).__name__}: {exc}")
+    if st.session_state.get(f"scenario_result_{project_id}"):
+        _show_cases(st.session_state[f"scenario_result_{project_id}"], "场景驱动生成结果")
+
+
+def _scenario_mode(service: Any, project_id: str, case_library: Any, config: dict[str, Any]) -> None:
+    st.subheader("第一步：场景意图")
+    with st.form(f"scenario_intent_{project_id}"):
+        goal = st.text_area("想验证的目标")
+        simulation_object = st.text_input("仿真对象或子系统")
+        mission_phase = st.text_input("任务阶段")
+        scale = st.number_input("场景规模", min_value=0, value=1)
+        risks = st.text_area("重点风险或异常（每行或逗号分隔）")
+        use_defaults = st.checkbox("使用项目默认配置", value=True)
+        submitted = st.form_submit_button("自动场景编译", type="primary")
+    if submitted:
+        focus_risks = [
+            value.strip() for value in risks.replace("，", ",").replace("\n", ",").split(",")
+            if value.strip()
+        ]
+        bar = st.progress(0.0, text="准备场景编译")
+
+        def progress(stage: str, value: float) -> None:
+            bar.progress(value, text=stage)
+
+        try:
+            compiled = service.compile_scenario(project_id, {
+                "scenario_goal": goal,
+                "simulation_object": simulation_object,
+                "target_subsystem": simulation_object,
+                "mission_phase": mission_phase,
+                "scale": int(scale),
+                "focus_risks": focus_risks,
+                "use_project_defaults": use_defaults,
+                "additional_instructions": "",
+                "title": goal[:80],
+            }, progress_callback=progress)
+            st.session_state[f"compiled_{project_id}"] = compiled
+            st.success("场景编译完成，草稿已保存。")
+        except Exception as exc:
+            st.error(f"场景编译失败：{type(exc).__name__}: {exc}")
+    compiled = st.session_state.get(f"compiled_{project_id}")
+    if compiled:
+        st.subheader("第二步：自动场景编译")
+        st.caption(f"运行ID：{compiled['run_id']}；完成 {len(compiled['step_trace'])} 个工作流步骤")
+        feedback_rule_ids = (compiled.get("provenance") or {}).get("feedback_rule_ids") or []
+        with st.expander("为什么这次这样生成"):
+            if feedback_rule_ids:
+                st.json(service.explain_feedback_rules(
+                    project_id, feedback_rule_ids,
+                    allow_global=bool(compiled["intent"].get("use_project_defaults")),
+                ))
+            else:
+                st.caption("本次没有命中已批准反馈规则；候选反馈不会参与生成。")
+        scenario = st.selectbox(
+            "第三步：展示场景草稿",
+            compiled["scenarios"],
+            format_func=lambda row: f"{row.get('title')} · {row.get('scenario_category')}",
+            key=f"compiled_draft_{project_id}",
+        )
+        st.dataframe(_rows(_field_sources(scenario, compiled.get("provenance") or {})), hide_index=True)
+        with st.expander("场景草稿完整内容"):
+            st.json(scenario)
+        _show_allocations(scenario)
+        validation = next(
+            row for row in compiled["validations"] if row["scenario_id"] == scenario["scenario_id"]
+        )
+        _difference_review(service, project_id, scenario, validation)
+    _approved_generation(service, project_id, case_library, config)
+
+
+def _requirement_mode(service: Any, project_id: str, case_library: Any, config: dict[str, Any]) -> None:
+    st.caption("兼容原有按需求生成流程，并保留 Agent/规则模式切换。")
+    buttons = st.columns(3)
+    if buttons[0].button("抽取/更新项目画像", key=f"profile_{project_id}"):
+        service.extract_profile(project_id, config["use_ollama"])
+        st.rerun()
+    if buttons[1].button("抽取/更新需求", key=f"requirements_{project_id}"):
+        service.extract_requirements(project_id)
+        st.rerun()
+    if buttons[2].button("抽取/更新旧场景卡", key=f"legacy_scenarios_{project_id}"):
+        service.extract_scenarios(project_id, config["use_ollama"])
+        st.rerun()
     requirements = service.list_requirements(project_id)
     if not requirements:
-        st.info("请先上传项目资料并抽取需求点。")
+        st.info("请先上传资料并抽取需求。")
         return
-    strategy = []
-    for req in requirements:
-        item = RequirementItem(
-            requirement_id=req["requirement_id"],
-            requirement_text=req.get("description", ""),
-            test_object=(profile or {}).get("test_object", ""),
-        )
-        six = classify_requirement(item, False, None)
-        strategy.append(
-            {
-                "需求编号": req["requirement_id"],
-                "需求": req.get("description", ""),
-                "六性匹配": "、".join(six),
-                "测试方法": "、".join(match_test_methods(item, six)),
-            }
-        )
-    st.subheader("需求点与测试策略")
-    st.dataframe(strategy, hide_index=True, use_container_width=True)
-
-    cards = service.list_scenario_cards(project_id)
-    st.subheader("场景卡片")
-    if cards:
-        st.dataframe(_scenario_rows(cards), hide_index=True, use_container_width=True)
-        with st.expander("查看场景卡完整内容"):
-            st.json(cards)
-    else:
-        st.warning("尚未抽取场景卡片；仍可生成，但会标记需人工确认。")
-    st.subheader("需求—场景关联")
-    relation = []
-    for req in requirements:
-        related = [
-            c
-            for c in cards
-            if req["requirement_id"] in (c.get("related_requirements") or [])
-        ]
-        relation.append(
-            {
-                "需求编号": req["requirement_id"],
-                "需求摘要": req.get("title", ""),
-                "关联场景": "、".join(c.get("scenario_name", "") for c in related)
-                or "未关联",
-                "场景数量": len(related),
-            }
-        )
-    st.dataframe(relation, hide_index=True, use_container_width=True)
-
-    st.subheader("场景化生成")
-    labels = {
-        f"{r['requirement_id']} - {r.get('title', '')}": r["requirement_id"]
-        for r in requirements
-    }
-    selected_label = st.selectbox(
-        "选择需求点", list(labels), key=f"scenario_req_{project_id}"
+    requirement = st.selectbox(
+        "选择需求", requirements,
+        format_func=lambda row: f"{row['requirement_id']} · {row.get('title', '')}",
+        key=f"selected_requirement_{project_id}",
     )
-    case_type = st.selectbox(
-        "选择测试类型", TEST_TYPES, key=f"scenario_type_{project_id}"
+    left, right = st.columns(2)
+    case_type = left.selectbox("测试类型", TEST_TYPES, key=f"requirement_type_{project_id}")
+    count = right.number_input("用例数量", 1, 20, 1, key=f"requirement_count_{project_id}")
+    mode = _execution_mode(config, f"requirement_exec_{project_id}")
+    use_kb = st.checkbox("使用当前项目知识库", True, key=f"requirement_kb_{project_id}")
+    history = st.checkbox(
+        "使用历史用例方法参考", bool(config["use_library"]),
+        disabled=case_library is None, key=f"requirement_history_{project_id}",
     )
-    use_kb = st.checkbox(
-        "使用当前项目知识库", True, key=f"scenario_use_kb_{project_id}"
-    )
-    use_history = st.checkbox(
-        "使用历史相似用例（仅参考写法）",
-        config["use_library"],
-        disabled=case_library is None,
-        key=f"scenario_use_history_{project_id}",
-    )
-    req_id = labels[selected_label]
-    p1, p2 = st.columns(2)
-    if p1.button("预览生成上下文", key=f"preview_context_{project_id}"):
-        st.session_state[f"advanced_context_{project_id}"] = service.preview_generation(
-            project_id, req_id, case_type, int(config["top_k"]), use_kb, use_history
+    preview_col, generate_col = st.columns(2)
+    if preview_col.button("预览生成上下文", key=f"preview_{project_id}"):
+        st.session_state[f"preview_{project_id}"] = service.preview_generation(
+            project_id, requirement["requirement_id"], case_type,
+            int(config["top_k"]), use_kb, history,
         )
-    if p2.button(
-        "一键生成场景化用例", type="primary", key=f"generate_scenario_case_{project_id}"
-    ):
-        with st.spinner("正在构造上下文、生成、审查并评分……"):
-            payload = {
-                "project_id": project_id,
-                "requirement_id": req_id,
-                "case_type": case_type,
-                "use_kb": use_kb,
-                "use_history": use_history,
-            }
-            fingerprint = request_fingerprint(payload)
-            guard_key = f"generation:{project_id}"
-            if not begin_once(st.session_state, guard_key, fingerprint):
-                st.info("相同生成请求已完成或正在执行，未重复生成和写库。")
-                return
+    if generate_col.button("按需求生成测试用例", type="primary", key=f"generate_{project_id}"):
+        request_data = {
+            "project_id": project_id, "requirement_id": requirement["requirement_id"],
+            "case_type": case_type, "count": int(count), "mode": mode,
+        }
+        fingerprint = request_fingerprint(request_data)
+        guard_key = f"generation:{project_id}:requirement"
+        if not begin_once(st.session_state, guard_key, fingerprint):
+            st.info("相同请求已完成或正在执行，未重复生成。")
+        else:
             try:
-                generated = service.generate(
-                    GenerationRequest(
-                        project_id=project_id,
-                        requirement_ids=[req_id],
-                        case_type=case_type,
-                        use_project_kb=use_kb,
-                        use_history=use_history,
-                        requested_mode="auto" if config["use_ollama"] else "rule",
-                    )
-                )
-                record = generated.cases[0]
-                result = {
-                    "case": record.persistence_data,
-                    "quality": record.quality,
-                    "generation_result": generated.model_dump(mode="json"),
-                }
+                generated = service.generate(GenerationRequest(
+                    project_id=project_id,
+                    requirement_ids=[requirement["requirement_id"]],
+                    case_type=case_type,
+                    case_count=int(count),
+                    requested_mode=mode,
+                    use_project_kb=use_kb,
+                    use_history=history,
+                ))
+                result = generated.model_dump(mode="json")
                 finish_once(st.session_state, guard_key, fingerprint, result)
+                st.session_state[f"requirement_result_{project_id}"] = result
             except Exception as exc:
                 fail_once(st.session_state, guard_key)
                 st.error(f"生成失败：{type(exc).__name__}: {exc}")
-                raise
-            st.session_state[f"advanced_result_{project_id}"] = result
-            st.success("场景化用例已生成、审查、评分并保存。")
-    context = st.session_state.get(f"advanced_context_{project_id}")
-    if context:
-        with st.expander("生成前上下文预览", expanded=True):
-            st.json(context)
-    result = st.session_state.get(f"advanced_result_{project_id}")
-    if result:
-        metadata = result.get("generation_result") or {}
-        sources = (
-            metadata.get("retrieved_source_chunk_ids")
-            or result["case"].get("source_chunk_ids")
-            or []
-        )
-        st.caption(
-            f"generation mode: {metadata.get('generation_mode', 'unknown')} · Agent 降级: {'是' if metadata.get('fallback_reason') else '否'} · 来源数量: {len(sources)}"
-        )
-        if metadata.get("fallback_reason"):
-            st.warning(f"降级原因：{metadata['fallback_reason']}")
-        missing = (
-            metadata.get("overall_missing_information")
-            or result["case"].get("missing_information")
-            or []
-        )
-        if missing:
-            st.warning("缺失信息：" + "；".join(missing))
-        st.caption(
-            f"需要人工确认：{'是' if result['case'].get('need_human_confirm') else '否'}"
-        )
-        st.subheader("最新场景化用例")
-        st.json(result["case"])
-        q1, q2 = st.columns([1, 3])
-        q1.metric("质量评分", result["quality"]["score"])
-        q2.dataframe(
-            [result["quality"]["dimensions"]], hide_index=True, use_container_width=True
-        )
-        if result["quality"]["issues"]:
-            st.warning("；".join(result["quality"]["issues"]))
-        if result["quality"]["suggestions"]:
-            st.info("；".join(result["quality"]["suggestions"]))
+    if st.session_state.get(f"preview_{project_id}"):
+        with st.expander("生成上下文预览"):
+            st.json(st.session_state[f"preview_{project_id}"])
+    if st.session_state.get(f"requirement_result_{project_id}"):
+        _show_cases(st.session_state[f"requirement_result_{project_id}"], "按需求生成结果")
 
-    st.subheader("已生成用例与质量")
+
+def render_generation_page(
+    service: Any, project_id: str, case_library: Any, config: dict[str, Any]
+) -> None:
+    st.header("智能生成 · 场景驱动 Agent")
+    if not project_id:
+        st.info("请先创建项目。")
+        return
+    mode = st.radio(
+        "生成模式", ["场景驱动生成", "按需求生成（兼容）"], horizontal=True,
+        key=f"generation_mode_{project_id}",
+    )
+    if mode == "场景驱动生成":
+        _scenario_mode(service, project_id, case_library, config)
+    else:
+        _requirement_mode(service, project_id, case_library, config)
+    st.subheader("已生成用例")
     only_confirm = st.checkbox("只显示需人工确认", key=f"only_confirm_{project_id}")
-    saved = [x.get("case_json") or {} for x in service.list_generated_cases(project_id)]
+    saved = [row.get("case_json") or {} for row in service.list_generated_cases(project_id)]
     if only_confirm:
-        saved = [
-            x
-            for x in saved
-            if x.get("need_human_confirm") or x.get("need_human_confirmation")
-        ]
+        saved = [row for row in saved if row.get("need_human_confirm")]
     if saved:
-        st.dataframe(_case_table_rows(saved), hide_index=True, use_container_width=True)
+        st.dataframe(_rows(saved), hide_index=True, use_container_width=True)
     scores = service.list_quality_scores(project_id)
     if scores:
         with st.expander("历史质量评分"):
             st.dataframe(scores, hide_index=True, use_container_width=True)
-    st.info("生成完成后，下一步请进入“结果审查与追溯”查看评分、来源并进行人工确认。")
+    st.info("生成后可在“结果审查与追溯”中查看完整来源并完成人工确认。")

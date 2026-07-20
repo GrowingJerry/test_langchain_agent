@@ -1,0 +1,10 @@
+{"case_id":"normal-complete","allocations":[{"role_requirement_id":"R-CONTROL","equipment_id":"EQ-CONTROL","quantity":2,"quantity_source":"fixed","rule_id":"Q-A1","source_refs":[{"jsonl_record_no":1,"project_id":"P-A"},{"rule_id":"Q-A1","project_id":"P-A"}]}]}
+{"case_id":"missing-quantity-rule","allocations":[{"role_requirement_id":"R-SENSOR","equipment_id":"EQ-SENSOR","quantity":null,"quantity_source":"","rule_id":"","need_human_confirm":true,"source_refs":[{"jsonl_record_no":2,"project_id":"P-A"}]}]}
+{"case_id":"capability-mismatch","allocations":[]}
+{"case_id":"inventory-shortage","allocations":[]}
+{"case_id":"book-project-conflict","allocations":[{"role_requirement_id":"R-CONTROL","equipment_id":"EQ-CONTROL","quantity":1,"quantity_source":"user","rule_id":"","source_refs":[{"jsonl_record_no":1,"project_id":"P-A"}]}]}
+{"case_id":"same-symbol-scopes","allocations":[{"role_requirement_id":"R-MODEL","equipment_id":"EQ-MODEL","quantity":1,"quantity_source":"user","rule_id":"","source_refs":[{"jsonl_record_no":3,"project_id":"P-A"}]}]}
+{"case_id":"scanned-pdf-gap","allocations":[]}
+{"case_id":"cross-project-attempt","allocations":[{"role_requirement_id":"R-SEARCH","equipment_id":"EQ-SEARCH","quantity":1,"quantity_source":"user","rule_id":"","source_refs":[{"chunk_id":"C-A8","project_id":"P-A"}]}]}
+{"case_id":"environment-disturbance","allocations":[{"role_requirement_id":"R-CONTROL","equipment_id":"EQ-CONTROL","quantity":2,"quantity_source":"user","rule_id":"","source_refs":[{"chunk_id":"C-A9","project_id":"P-A"}]}]}
+{"case_id":"fault-degraded-recovery","allocations":[{"role_requirement_id":"R-COMM","equipment_id":"EQ-COMM","quantity":2,"quantity_source":"redundancy","rule_id":"Q-REDUNDANCY","source_refs":[{"jsonl_record_no":10,"project_id":"P-A"},{"rule_id":"Q-REDUNDANCY","project_id":"P-A"}]}]}

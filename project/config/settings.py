@@ -47,6 +47,10 @@ class Settings(BaseModel):
     upload_max_bytes: int = Field(default=20 * 1024 * 1024, ge=1, le=200 * 1024 * 1024)
     document_max_chars: int = Field(default=2_000_000, ge=1000, le=20_000_000)
     pdf_max_pages: int = Field(default=500, ge=1, le=5000)
+    background_document_page_threshold: int = Field(default=50, ge=1, le=5000)
+    background_document_bytes_threshold: int = Field(
+        default=5 * 1024 * 1024, ge=1024, le=200 * 1024 * 1024
+    )
     log_level: str = "INFO"
     langsmith_tracing: bool = False
     data_dir: Path = PROJECT_ROOT / "data"
