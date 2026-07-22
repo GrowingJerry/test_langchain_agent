@@ -7,13 +7,13 @@ from typing import Any, Dict, List
 from langchain_core.tools import BaseTool, tool
 
 from agents.test_case.context import AgentRuntimeContext
-from core.six_quality_classifier import classify_requirement
-from core.test_method_matcher import match_test_methods
+from domain.rules.quality_classifier import classify_requirement
+from domain.rules.test_method import match_test_methods
 from domain.exceptions import PersistenceError, RetrievalError
-from equipment.equipment_service import EquipmentService
-from infrastructure.db.json_codec import loads_json
-from learning.knowledge_review_service import KnowledgeReviewService
-from models.schemas import RequirementItem
+from infrastructure.equipment.equipment_service import EquipmentService
+from infrastructure.database.json_codec import loads_json
+from workflows.learning.knowledge_review_service import KnowledgeReviewService
+from domain.schemas.generation import RequirementItem
 
 
 def build_test_case_tools(context: AgentRuntimeContext) -> List[BaseTool]:
@@ -49,12 +49,19 @@ def build_test_case_tools(context: AgentRuntimeContext) -> List[BaseTool]:
         except (ValueError, TypeError, OSError) as exc:
             raise PersistenceError(f"get_requirement_context failed: {exc!r}") from exc
         if not row:
-            raise RetrievalError(
-                f"Requirement {requirement_id!r} was not found in the bound project"
-            )
+            # Scenario-only requests legitimately have no requirement ID. A
+            # local model may still probe this tool with an empty or guessed
+            # value; expose the miss without aborting the complete Agent run.
+            return {
+                "found": False,
+                "requirement_id": requirement_id,
+                "notice": "当前项目未找到该需求；请仅使用已编译场景和实际检索到的来源。",
+                "fact_source": "current_project_requirement_lookup",
+            }
         context.record_chunks([str(row.get("source_chunk_id") or "")])
         context.record_documents([str(row.get("source_document") or "")])
         return {
+            "found": True,
             "requirement_id": row.get("requirement_id", requirement_id),
             "title": row.get("title", ""),
             "description": row.get("description", ""),
@@ -131,9 +138,14 @@ def build_test_case_tools(context: AgentRuntimeContext) -> List[BaseTool]:
         context.record_tool("get_test_method_guidance")
         row = context.manager.get_requirement(context.project_id, requirement_id)
         if not row:
-            raise RetrievalError(
-                f"Requirement {requirement_id!r} was not found in the bound project"
-            )
+            return {
+                "found": False,
+                "requirement_id": requirement_id,
+                "quality_categories": [],
+                "recommended_methods": [],
+                "notice": "当前项目未找到该需求，不能提供需求级测试方法建议。",
+                "guidance_source": "deterministic_project_rules",
+            }
         item = RequirementItem(
             requirement_id=requirement_id,
             requirement_text=str(row.get("description") or row.get("title") or ""),
@@ -146,6 +158,7 @@ def build_test_case_tools(context: AgentRuntimeContext) -> List[BaseTool]:
         )
         categories = classify_requirement(item, False, None)
         return {
+            "found": True,
             "requirement_id": requirement_id,
             "quality_categories": categories,
             "recommended_methods": match_test_methods(item, categories),

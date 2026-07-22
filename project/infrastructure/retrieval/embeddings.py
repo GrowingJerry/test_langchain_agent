@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Protocol
 
-from core.embedding_client import OllamaEmbeddingClient
+from infrastructure.llm.embedding_client import OllamaEmbeddingClient
 
 
 class EmbeddingProvider(Protocol):

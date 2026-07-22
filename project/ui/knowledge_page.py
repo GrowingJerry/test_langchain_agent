@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import streamlit as st
 
-from core.requirement_extractor import classify_requirement
+from workflows.learning.requirement_extractor import classify_requirement
 
 IMAGE_TYPES = ["png", "jpg", "jpeg", "webp"]
 

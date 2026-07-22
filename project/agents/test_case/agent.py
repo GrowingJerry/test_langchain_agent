@@ -14,7 +14,7 @@ from langchain.agents.middleware import (
 )
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
-from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
+from langchain.agents.structured_output import ToolStrategy
 from pydantic import ValidationError
 
 from agents.test_case.context import AgentRuntimeContext
@@ -43,21 +43,14 @@ class TestCaseAgent:
         self.runtime = runtime
         self.model = model or OllamaModelFactory(runtime.settings).text_model()
         self.tools = build_test_case_tools(runtime)
-        is_local_ollama = self.model.__class__.__module__.startswith(
-            "langchain_ollama"
-        )
         self.graph = create_agent(
             model=self.model,
             tools=self.tools,
             system_prompt=TEST_CASE_AGENT_SYSTEM_PROMPT,
-            response_format=(
-                ProviderStrategy(GeneratedCaseBundle)
-                if is_local_ollama
-                else ToolStrategy(
+            response_format=ToolStrategy(
                     GeneratedCaseBundle,
                     tool_message_content="GeneratedCaseBundle 已通过结构化校验。",
                     handle_errors="结构化输出不符合 GeneratedCaseBundle，请仅修正字段后重试。",
-                )
             ),
             middleware=self._middleware(),
             name="project_test_case_agent",

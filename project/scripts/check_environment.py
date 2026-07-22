@@ -57,7 +57,7 @@ def _print_safe_ollama_config() -> None:
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
     embed_model = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-    vision_model = os.getenv("OLLAMA_VISION_MODEL", "qwen2.5vl:3b")
+    vision_model = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b")
     print(f"Ollama URL: {base_url}")
     print(f"Ollama model: {model}")
     print(f"Ollama embedding model: {embed_model}")

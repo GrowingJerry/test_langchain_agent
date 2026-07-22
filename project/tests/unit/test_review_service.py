@@ -5,7 +5,7 @@ from langchain_core.runnables import RunnableLambda
 from chains.test_case_review import TestCaseReviewChain as StructuredReviewChain
 from config.settings import Settings
 from domain.schemas.review import Review
-from services.review_service import ReviewService
+from application.services.review_service import ReviewService
 
 
 class FakeManager:

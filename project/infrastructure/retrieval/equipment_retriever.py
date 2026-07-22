@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from infrastructure.db.repositories.equipment_repository import EquipmentRepository
+from infrastructure.repositories.equipment_repository import EquipmentRepository
 from infrastructure.retrieval.embeddings import (
     EmbeddingProvider,
     OllamaEmbeddingProvider,

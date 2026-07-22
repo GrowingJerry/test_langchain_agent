@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
 from domain.schemas.allocation import EquipmentAllocation
 from domain.schemas.scenario_spec import ScenarioRoleRequirement, ScenarioSpec
-from infrastructure.db.json_codec import dumps_json
-from infrastructure.db.repositories.base import now_iso
-from scenario_engine.scenario_validator import CHECK_NAMES, ScenarioValidator
+from infrastructure.database.json_codec import dumps_json
+from infrastructure.repositories.base import now_iso
+from workflows.scenario.scenario_validator import CHECK_NAMES, ScenarioValidator
 
 
 @pytest.fixture

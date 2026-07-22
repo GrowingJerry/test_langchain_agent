@@ -26,7 +26,7 @@ from domain.schemas.scenario import (
 )
 from infrastructure.llm.model_factory import OllamaModelFactory
 from infrastructure.llm.ollama_health import OllamaHealthClient
-from prompts.scenario_extraction import scenario_extraction_prompt
+from workflows.scenario.prompts import scenario_extraction_prompt
 
 
 LOGGER = logging.getLogger(__name__)

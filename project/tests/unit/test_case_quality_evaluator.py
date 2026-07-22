@@ -1,4 +1,4 @@
-from core.case_quality_evaluator import evaluate_case_quality
+from domain.rules.case_quality import evaluate_case_quality
 
 
 def test_persistence_identifiers_are_not_treated_as_numeric_facts() -> None:

@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
+import application.services.project_service as manager_module
 from config.settings import Settings
-from core.project_manager import ProjectManager
-from services.upload_service import UploadService, UploadValidationError
+from application.services.project_service import ProjectManager
+from application.services.upload_service import UploadService, UploadValidationError
 
 
 @pytest.fixture

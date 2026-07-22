@@ -25,6 +25,11 @@ project/outputs/
 *.db
 *.sqlite
 *.sqlite3
+*.before_cleanup.db
+*.backup.db
+*.bak
+*.tmp
+*.log
 
 # Test and tooling caches
 .pytest_cache/

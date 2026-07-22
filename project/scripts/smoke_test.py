@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ast
-import os
 import sys
 import tempfile
 from pathlib import Path
 from typing import List
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 EXPECTED_PAGES = [
@@ -33,13 +34,12 @@ def _app_pages() -> List[str]:
 
 
 def main() -> None:
-    import core.project_manager as project_manager_module
-    from core.advanced_case_generator import AdvancedCaseGenerator
-    from core.context_builder import ContextBuilder
-    from core.document_ingestor import save_and_ingest_document
-    from core.project_kb import search_project_chunks
-    from core.project_manager import ProjectManager
-    from core.scenario_card_extractor import extract_and_save_scenario_cards
+    import application.services.project_service as project_manager_module
+    from application.services.generation_context import ContextBuilder
+    from infrastructure.documents.ingestor import save_and_ingest_document
+    from infrastructure.retrieval.project_knowledge import search_project_chunks
+    from application.services.project_service import ProjectManager
+    from workflows.scenario.card_extractor import extract_and_save_scenario_cards
 
     assert _app_pages() == EXPECTED_PAGES, "主导航不是最终六页面"
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
@@ -85,7 +85,7 @@ def main() -> None:
         }
         assert required <= tables, required - tables
         assert (
-            AdvancedCaseGenerator and ContextBuilder and extract_and_save_scenario_cards
+            ContextBuilder and extract_and_save_scenario_cards
         )
     print("final-system-smoke: OK")
     print("pages:", " / ".join(EXPECTED_PAGES))
@@ -94,7 +94,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if __package__ is None:
-        os.chdir(ROOT)
-        os.execv(sys.executable, [sys.executable, "-m", "scripts.smoke_test"])
     main()

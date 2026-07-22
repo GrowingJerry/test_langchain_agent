@@ -10,9 +10,9 @@ from agents.test_case.agent import TestCaseAgent
 from agents.test_case.context import AgentRuntimeContext
 from agents.test_case.output_schema import TestCaseAgentRequest
 from config.settings import settings
-from core.document_ingestor import save_and_ingest_document
-import core.project_manager as project_manager_module
-from core.project_manager import ProjectManager
+from infrastructure.documents.ingestor import save_and_ingest_document
+import application.services.project_service as project_manager_module
+from application.services.project_service import ProjectManager
 from infrastructure.llm.ollama_health import OllamaHealthClient
 
 

@@ -90,7 +90,7 @@ class VisualEvidence(BaseModel):
     possible_test_points: List[str] = Field(default_factory=list)
     risk_points: List[str] = Field(default_factory=list)
     source_region: str = ""
-    confidence: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     need_human_confirm: bool = True
     raw_response: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = ""

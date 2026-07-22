@@ -10,8 +10,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.project_manager import ProjectManager  # noqa: E402
-from learning.document_job_runner import DocumentJobRunner  # noqa: E402
+from application.services.project_service import ProjectManager  # noqa: E402
+from workflows.learning.document_job_runner import DocumentJobRunner  # noqa: E402
 
 
 def main() -> int:

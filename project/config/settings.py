@@ -24,7 +24,7 @@ class Settings(BaseModel):
     ollama_extraction_model: str = "qwen3:8b"
     ollama_review_model: str = "qwen3.5:4b"
     ollama_embed_model: str = "nomic-embed-text"
-    ollama_vision_model: str = "qwen2.5vl:3b"
+    ollama_vision_model: str = "qwen3-vl:8b"
     ollama_timeout: int = Field(default=120, ge=1, le=3600)
     ollama_num_ctx: int = Field(default=8192, ge=2048, le=131072)
     ollama_structured_num_predict: int = Field(default=2048, ge=256, le=16384)
@@ -59,8 +59,6 @@ class Settings(BaseModel):
     langsmith_tracing: bool = False
     data_dir: Path = PROJECT_ROOT / "data"
     outputs_dir: Path = PROJECT_ROOT / "outputs"
-    rules_dir: Path = PROJECT_ROOT / "rules"
-    rag_dir: Path = PROJECT_ROOT / "rag"
 
     @field_validator("ollama_base_url")
     @classmethod
@@ -114,20 +112,8 @@ class Settings(BaseModel):
         return cls.model_validate(field_values)
 
     @property
-    def output_excel_dir(self) -> Path:
-        return self.outputs_dir / "excel"
-
-    @property
-    def output_json_dir(self) -> Path:
-        return self.outputs_dir / "json"
-
-    @property
     def output_sqlite_dir(self) -> Path:
         return self.outputs_dir / "sqlite"
-
-    @property
-    def uploads_dir(self) -> Path:
-        return self.outputs_dir / "uploads"
 
     @property
     def default_case_library_db(self) -> Path:
@@ -136,7 +122,7 @@ class Settings(BaseModel):
 
 settings = Settings.from_env()
 
-# Compatibility constants. New infrastructure code should depend on ``settings``.
+# Stable configuration exports used by the application.
 OLLAMA_BASE_URL = settings.ollama_base_url
 OLLAMA_MODEL = settings.ollama_model
 OLLAMA_EXTRACTION_MODEL = settings.ollama_extraction_model
@@ -154,20 +140,9 @@ ENABLE_CASE_LIBRARY = settings.enable_case_library
 TOP_K_CASES = settings.top_k_cases
 DATA_DIR = settings.data_dir
 OUTPUTS_DIR = settings.outputs_dir
-OUTPUT_EXCEL_DIR = settings.output_excel_dir
-OUTPUT_JSON_DIR = settings.output_json_dir
 OUTPUT_SQLITE_DIR = settings.output_sqlite_dir
-UPLOADS_DIR = settings.uploads_dir
-RULES_DIR = settings.rules_dir
-RAG_DIR = settings.rag_dir
 DEFAULT_CASE_LIBRARY_DB = settings.default_case_library_db
 
-# Preserve the existing import-time directory contract for legacy callers.
-for _directory in (
-    OUTPUT_EXCEL_DIR,
-    OUTPUT_JSON_DIR,
-    OUTPUT_SQLITE_DIR,
-    UPLOADS_DIR,
-    RAG_DIR,
-):
-    _directory.mkdir(parents=True, exist_ok=True)
+# The default databases need a parent directory before first use. Other output
+# directories are created by the feature that owns them.
+OUTPUT_SQLITE_DIR.mkdir(parents=True, exist_ok=True)

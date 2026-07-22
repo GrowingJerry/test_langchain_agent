@@ -6,13 +6,13 @@ from typing import Iterator
 
 import pytest
 
-import core.project_manager as manager_module
-from core.document_ingestor import (
+import application.services.project_service as manager_module
+from infrastructure.documents.ingestor import (
     build_document_chunks_with_report,
     save_and_ingest_document,
 )
-from core.project_manager import ProjectManager
-from document_parsers.base import ParsedPage
+from application.services.project_service import ProjectManager
+from infrastructure.documents.parsers.base import ParsedPage
 
 
 class TrackingPage:

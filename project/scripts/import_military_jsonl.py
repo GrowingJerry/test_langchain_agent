@@ -11,10 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.project_manager import ProjectManager  # noqa: E402
-from equipment.jsonl_importer import MilitaryJsonlImporter  # noqa: E402
-from infrastructure.db.json_codec import dumps_json  # noqa: E402
-from infrastructure.db.repositories.equipment_repository import (  # noqa: E402
+from application.services.project_service import ProjectManager  # noqa: E402
+from infrastructure.equipment.jsonl_importer import MilitaryJsonlImporter  # noqa: E402
+from infrastructure.database.json_codec import dumps_json  # noqa: E402
+from infrastructure.repositories.equipment_repository import (  # noqa: E402
     GLOBAL_PROJECT_ID,
 )
 

@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
 from domain.exceptions import PersistenceError
-from infrastructure.db.connection import SQLiteConnectionManager
-from infrastructure.db.migrations import SCHEMA_VERSION, migrate_database
+from infrastructure.database.connection import SQLiteConnectionManager
+from infrastructure.database.migrations import SCHEMA_VERSION, migrate_database
 
 
 @pytest.fixture

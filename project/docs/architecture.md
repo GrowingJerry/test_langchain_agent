@@ -1,33 +1,14 @@
-# 系统架构
+# 架构
 
-## 分层与依赖
+主调用链为：`app.py → ApplicationContainer → application service → workflow/agent/chain → repository → SQLite、检索或 Ollama`。
 
-```text
-Streamlit UI
-  -> UIApplicationService / 领域 Service
-     -> 场景工作流 / 学习流程 / TestCase Agent / Chain
-        -> Retrieval + Repository
-           -> SQLite
-```
+- `ui`：Streamlit 输入和展示。
+- `application`：依赖装配与业务用例编排。
+- `domain`：唯一业务模型、异常和确定性规则。
+- `infrastructure`：数据库、仓储、检索、LLM、文档、装备和导出适配器。
+- `workflows/learning`：文档任务、知识抽取、冲突检测、审批和反馈学习。
+- `workflows/scenario`：意图解析、装备分配、数量求解、编译和验证。
+- `agents/test_case`：可调用检索工具的测试用例 Agent；Ollama 不可用时由应用服务切换规则 fallback。
+- `chains`：仅承载固定结构化抽取或审核。
 
-- `ui/` 只收集输入和展示结构化结果，不包含 SQL、模型调用或持久化规则。
-- `services/` 提供 UI 应用边界并保留旧入口适配。
-- `scenario_engine/` 执行确定性场景编译、装备分配、数量求解和校验。
-- `learning/` 处理后台文档作业、领域学习、知识冲突审核和反馈候选。
-- `equipment/` 处理 JSONL 标准化、检索、能力匹配和配置规则。
-- `agents/test_case/` 是唯一开放式 Agent；所有工具闭包绑定当前 `project_id`。
-- `chains/` 只承担固定输入输出的结构化模型任务。
-- `infrastructure/db/repositories/` 集中传统实体持久化；新增领域流程中的 SQL 位于 Service/Repository 层，绝不进入 UI。
-- `domain/schemas/` 使用 Pydantic v2 严格模型。
-
-## 兼容边界
-
-旧 `ScenarioItem`、`ScenarioCard` 和 `models.schemas` 继续服务 Excel、旧场景抽取和导出入口；新 `ScenarioIntent`、`ScenarioSpec` 服务场景编译，两者不是重复模型。`ProjectManager` 保留为兼容 facade，将旧公开方法委托给 Repository。`rag/scenario_generator.expand_scenario()` 已接入新工作流并返回旧扁平格式。
-
-## 数据隔离与来源
-
-文档、chunk、学习任务、知识、装备、库存、场景、校验、反馈和生成结果均带 `project_id`。Repository 和 Service 查询必须传入当前项目；`GLOBAL` 知识、模板或装备只有显式允许时才合并。事实来源可追踪到 `document_id`、`chunk_id`、页码或 JSONL 行号。
-
-## 长任务
-
-长文档由 SQLite 作业队列驱动：上传创建作业，Worker 原子领取租约，解析器逐页产出，按固定页数提交进度。中断后从已提交页恢复，单页失败不终止整本资料。
+文档学习流程：上传校验 → 解析/OCR → 切块与索引 → 知识抽取 → 冲突检测 → 人工审批。场景流程：意图解析 → 项目知识与装备检索 → 分配与数量求解 → 场景编译 → 验证与审批。用例流程：构建项目上下文 → Agent 或规则生成 → 质量审核 → 保存来源与追溯 → 人工审核与导出。

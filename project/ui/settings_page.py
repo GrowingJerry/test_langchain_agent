@@ -1,7 +1,7 @@
 """Runtime system settings page."""
 
 import streamlit as st
-from core.standard_kb import STANDARD_DOCX
+from domain.rules.standard_knowledge import STANDARD_DOCX
 
 
 def render_settings_page(config: dict) -> None:

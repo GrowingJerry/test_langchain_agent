@@ -16,16 +16,17 @@ if str(ROOT) not in sys.path:
 
 from chains.knowledge_extraction import KnowledgeExtractionChain  # noqa: E402
 from config.settings import Settings  # noqa: E402
-from core.project_document_exporter import export_project_excel, export_project_word  # noqa: E402
-from core.project_manager import ProjectManager  # noqa: E402
-from equipment.jsonl_importer import MilitaryJsonlImporter  # noqa: E402
-from learning.document_job_runner import DocumentJobRunner  # noqa: E402
-from learning.knowledge_review_service import KnowledgeReviewService  # noqa: E402
-from learning.learning_task_service import LearningTaskService  # noqa: E402
-from infrastructure.db.json_codec import loads_json  # noqa: E402
-from scenario_engine.scenario_workflow import ScenarioWorkflow  # noqa: E402
-from services.generation_service import GenerationRequest, GenerationService  # noqa: E402
-from services.upload_service import UploadService  # noqa: E402
+from infrastructure.exporters.project_documents import export_project_excel, export_project_word  # noqa: E402
+from application.services import project_service as project_service_module  # noqa: E402
+from application.services.project_service import ProjectManager  # noqa: E402
+from infrastructure.equipment.jsonl_importer import MilitaryJsonlImporter  # noqa: E402
+from workflows.learning.document_job_runner import DocumentJobRunner  # noqa: E402
+from workflows.learning.knowledge_review_service import KnowledgeReviewService  # noqa: E402
+from workflows.learning.learning_task_service import LearningTaskService  # noqa: E402
+from infrastructure.database.json_codec import loads_json  # noqa: E402
+from workflows.scenario.scenario_workflow import ScenarioWorkflow  # noqa: E402
+from application.services.generation_service import GenerationRequest, GenerationService  # noqa: E402
+from application.services.upload_service import UploadService  # noqa: E402
 
 
 def main() -> int:
@@ -67,7 +68,9 @@ def main() -> int:
     jsonl_path = ROOT / "data/military.jsonl"
 
     with tempfile.TemporaryDirectory(prefix="real-ollama-audit-") as temp:
-        manager = ProjectManager(Path(temp) / "audit.db")
+        audit_root = Path(temp)
+        project_service_module.PROJECT_OUTPUT_ROOT = audit_root / "projects"
+        manager = ProjectManager(audit_root / "audit.db")
         project_id = manager.create_project("真实Ollama全流程审查")["project_id"]
         upload = UploadService(manager, settings)
 

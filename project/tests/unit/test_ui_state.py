@@ -1,4 +1,4 @@
-from services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
+from application.services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
 
 
 def test_request_fingerprint_is_stable_and_sensitive() -> None:

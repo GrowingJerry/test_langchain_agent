@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from equipment.jsonl_importer import MilitaryJsonlImporter
-from equipment.normalizer import EquipmentFieldMapping
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from infrastructure.equipment.jsonl_importer import MilitaryJsonlImporter
+from infrastructure.equipment.normalizer import EquipmentFieldMapping
 
 
 @pytest.fixture

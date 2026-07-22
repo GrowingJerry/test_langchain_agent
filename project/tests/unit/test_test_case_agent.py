@@ -227,6 +227,23 @@ def test_tools_expose_no_project_id_and_only_use_bound_project() -> None:
     assert all(project_id == "P1" for _, project_id in manager.calls)
 
 
+def test_requirement_tools_return_lookup_miss_for_scenario_only_request() -> None:
+    class MissingRequirementManager(FakeManager):
+        def get_requirement(self, project_id: str, requirement_id: str) -> dict:
+            self.calls.append(("requirement", project_id))
+            return {}
+
+    context = runtime(MissingRequirementManager())
+    tools = {item.name: item for item in build_test_case_tools(context)}
+
+    requirement = tools["get_requirement_context"].invoke({"requirement_id": ""})
+    guidance = tools["get_test_method_guidance"].invoke({"requirement_id": ""})
+
+    assert requirement["found"] is False
+    assert guidance["found"] is False
+    assert guidance["recommended_methods"] == []
+
+
 def test_observed_prefetch_sources_replace_model_omissions() -> None:
     model = ToolCallingFakeModel(
         responses=[

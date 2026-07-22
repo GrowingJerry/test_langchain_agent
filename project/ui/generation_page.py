@@ -7,8 +7,8 @@ from typing import Any
 
 import streamlit as st
 
-from services.generation_service import GenerationRequest
-from services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
+from application.services.generation_service import GenerationRequest
+from application.services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
 
 TEST_TYPES = ["功能测试", "性能测试", "接口测试", "异常测试", "安全性测试", "可靠性测试"]
 

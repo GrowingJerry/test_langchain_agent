@@ -2,9 +2,9 @@ from pathlib import Path
 
 import fitz
 
-from document_ocr.base import OcrPageResult
-from document_parsers.pymupdf_parser import PyMuPDFParser
-from core.project_manager import ProjectManager
+from infrastructure.documents.ocr.base import OcrPageResult
+from infrastructure.documents.parsers.pymupdf_parser import PyMuPDFParser
+from application.services.project_service import ProjectManager
 
 
 class FakeOcrEngine:

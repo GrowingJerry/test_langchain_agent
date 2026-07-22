@@ -2,12 +2,12 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from infrastructure.db.json_codec import dumps_json
-from infrastructure.db.repositories.base import now_iso
-from rag.scenario_generator import expand_scenario
-from scenario_engine.scenario_workflow import ScenarioWorkflow
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from infrastructure.database.json_codec import dumps_json
+from infrastructure.repositories.base import now_iso
+from workflows.scenario.variant_expansion import expand_scenario
+from workflows.scenario.scenario_workflow import ScenarioWorkflow
 
 
 @pytest.fixture

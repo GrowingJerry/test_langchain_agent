@@ -10,20 +10,16 @@ import pytest
 
 from agents.test_case.output_schema import GeneratedCaseBundle
 from config.settings import Settings
-from core.advanced_case_generator import AdvancedCaseGenerator
-from core.project_case_generator import ProjectCaseGenerator
-import core.project_manager as project_manager_module
-from core.project_manager import ProjectManager
-from core.project_document_exporter import (
+import application.services.project_service as project_manager_module
+from application.services.project_service import ProjectManager
+from infrastructure.exporters.project_documents import (
     build_project_export_rows,
     export_project_excel,
     export_project_word,
 )
-from core.test_case_generator import TestCaseGenerator as LegacyCaseGenerator
 from domain.exceptions import AgentExecutionError
 from domain.schemas.test_case import TestCase
-from models.schemas import RequirementItem, TestCaseItem
-from services.generation_service import GenerationRequest, GenerationService
+from application.services.generation_service import GenerationRequest, GenerationService
 
 
 class Health:
@@ -128,7 +124,7 @@ def workspace(monkeypatch: pytest.MonkeyPatch):
         )
         chunk_rows = manager.list_chunks(project_id, 100)
         monkeypatch.setattr(
-            "core.context_builder.search_project_chunks",
+            "application.services.generation_context.search_project_chunks",
             lambda current_manager, current_project_id, query, top_k: list(chunk_rows),
         )
         yield manager, project_id, chunk_id
@@ -245,39 +241,3 @@ def test_repeated_request_does_not_overwrite_primary_key(workspace) -> None:
     second = service.generate_test_cases(request(project_id))
     assert first.cases[0].case.case_id != second.cases[0].case.case_id
     assert len(manager.list_generated_cases(project_id)) == 2
-
-
-def test_legacy_project_generators_delegate_and_remain_callable(workspace) -> None:
-    manager, project_id, _ = workspace
-    advanced = AdvancedCaseGenerator(manager).generate(
-        project_id, "REQ-1", "功能测试", use_ollama=False, use_history=False
-    )
-    project_case = ProjectCaseGenerator(manager).generate(
-        project_id, "REQ-1", "功能测试", use_ollama=False, use_history=False
-    )
-    assert advanced["generation_mode"] == "rule_fallback"
-    assert advanced["case"]["generation_run_id"]
-    assert project_case["generation_mode"] == "rule_fallback"
-    assert project_case["_source_chunks"]
-
-
-def test_bound_test_case_generator_delegates(workspace) -> None:
-    manager, project_id, _ = workspace
-    service = GenerationService(
-        manager,
-        settings=enabled_settings(enable_agent=False),
-        health_client=Health(),
-    )
-    item = LegacyCaseGenerator(
-        generation_service=service, project_id=project_id
-    ).generate(
-        RequirementItem(
-            requirement_id="REQ-1", requirement_text="系统应接受订单数据。"
-        ),
-        ["可靠性"],
-        None,
-        0,
-        False,
-    )
-    assert isinstance(item, TestCaseItem)
-    assert item.case_id

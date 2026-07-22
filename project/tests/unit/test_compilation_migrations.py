@@ -1,13 +1,13 @@
-"""Database migration tests for compiled scenarios, equipment, and learning."""
+"""Database migration tests for compiled scenarios, equipment, and workflows.learning."""
 
 from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from infrastructure.db.json_codec import dumps_json, loads_json
-from infrastructure.db.migrations import SCHEMA_VERSION, migrate_database
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from infrastructure.database.json_codec import dumps_json, loads_json
+from infrastructure.database.migrations import SCHEMA_VERSION, migrate_database
 
 
 NEW_TABLES = {

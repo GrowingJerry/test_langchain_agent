@@ -1,11 +1,12 @@
 """Minimal offline end-to-end validation for the scenario-adapted Agent."""
 
-import os
 from pathlib import Path
 import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 SAMPLE = """无人巡检车系统运行在园区无线网络环境。
@@ -17,14 +18,15 @@ SAMPLE = """无人巡检车系统运行在园区无线网络环境。
 
 
 def main() -> None:
-    import core.project_manager as project_manager_module
-    from core.advanced_case_generator import AdvancedCaseGenerator
-    from core.document_ingestor import save_and_ingest_document
-    from core.project_document_exporter import export_project_excel, export_project_word
-    from core.project_manager import ProjectManager
-    from core.project_profile_extractor import extract_project_profile
-    from core.requirement_extractor import extract_requirements_from_chunks
-    from core.scenario_card_extractor import extract_and_save_scenario_cards
+    import application.services.project_service as project_manager_module
+    from application.services.generation_context import ContextBuilder
+    from application.services.generation_service import GenerationRequest, GenerationService
+    from infrastructure.documents.ingestor import save_and_ingest_document
+    from infrastructure.exporters.project_documents import export_project_excel, export_project_word
+    from application.services.project_service import ProjectManager
+    from workflows.learning.profile_extractor import extract_project_profile
+    from workflows.learning.requirement_extractor import extract_requirements_from_chunks
+    from workflows.scenario.card_extractor import extract_and_save_scenario_cards
 
     with tempfile.TemporaryDirectory(prefix="scenario-agent-") as temp:
         root = Path(temp)
@@ -64,11 +66,19 @@ def main() -> None:
         cards = extract_and_save_scenario_cards(manager, project_id, use_ollama=False)
         assert requirements and cards, "需求或场景抽取为空"
         requirement_id = requirements[0]["requirement_id"]
-        generator = AdvancedCaseGenerator(manager)
-        preview = generator.preview_context(project_id, requirement_id, "接口测试")
-        result = generator.generate(
-            project_id, requirement_id, "接口测试", use_ollama=False, use_history=False
+        preview = ContextBuilder(manager).build(
+            project_id, requirement_id, "接口测试", persist=False
         )
+        generation = GenerationService(manager).generate_test_cases(
+            GenerationRequest(
+                project_id=project_id, requirement_ids=[requirement_id],
+                case_type="接口测试", requested_mode="rule", use_history=False
+            )
+        )
+        result = {
+            "case": generation.cases[0].persistence_data,
+            "quality": generation.cases[0].quality,
+        }
         excel_path = export_project_excel(manager, project_id)
         word_path = export_project_word(manager, project_id)
         case = result["case"]
@@ -99,7 +109,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if __package__ is None:
-        os.chdir(ROOT)
-        os.execv(sys.executable, [sys.executable, "-m", "scripts.validate_scenario_agent"])
     main()

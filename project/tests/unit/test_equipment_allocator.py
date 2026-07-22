@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from equipment.allocation_rules import AllocationRule
-from scenario_engine.equipment_allocator import EquipmentAllocator
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from domain.rules.equipment_allocation import AllocationRule
+from workflows.scenario.equipment_allocator import EquipmentAllocator
 
 
 @pytest.fixture

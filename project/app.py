@@ -6,9 +6,8 @@ from pathlib import Path
 import streamlit as st
 
 from config import settings
-from core.case_library import CaseLibraryManager
-from core.project_manager import DEFAULT_PROJECT_DB, ProjectManager
-from services.ui_application_service import UIApplicationService
+from application.services.project_service import DEFAULT_PROJECT_DB
+from application.container import ApplicationContainer
 from ui.navigation import ensure_current_project, render_project_selector
 from ui.workbench_page import render_workbench_page
 from ui.knowledge_page import render_knowledge_page
@@ -54,15 +53,11 @@ def main() -> None:
         page_title="项目级测试文档智能生成系统", page_icon="🧭", layout="wide"
     )
     config = _runtime_config()
-    manager = ProjectManager(Path(config["project_db"]))
-    case_library = None
-    if config["use_library"]:
-        try:
-            case_library = CaseLibraryManager(Path(config["library_db"]))
-        except Exception as exc:
-            st.sidebar.warning(f"历史用例库初始化失败：{exc}")
-
-    service = UIApplicationService(manager, case_library)
+    library_db = Path(config["library_db"]) if config["use_library"] else None
+    service = ApplicationContainer().build_ui_service(
+        Path(config["project_db"]), library_db
+    )
+    case_library = service.case_library
     ensure_current_project(service)
 
     with st.sidebar:

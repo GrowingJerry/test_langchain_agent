@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from evaluation.scenario_metrics import evaluate_records
+from tests.evaluation.scenario_metrics import evaluate_records
 from scripts.evaluate_scenario_pipeline import read_jsonl
 
 GOLDEN = Path(__file__).parents[1] / "golden"

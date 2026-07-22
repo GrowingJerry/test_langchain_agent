@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from learning.job_service import DocumentJobService
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from workflows.learning.job_service import DocumentJobService
 
 
 @pytest.fixture

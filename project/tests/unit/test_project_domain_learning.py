@@ -4,11 +4,11 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-import core.project_manager as manager_module
+import application.services.project_service as manager_module
 from chains.knowledge_extraction import KnowledgeExtractionChain
 from config.settings import Settings
-from core.project_manager import ProjectManager
-from learning.learning_task_service import LearningTaskService
+from application.services.project_service import ProjectManager
+from workflows.learning.learning_task_service import LearningTaskService
 
 
 class StructuredModel:
@@ -27,7 +27,7 @@ class StructuredModel:
 @pytest.fixture
 def simulated_book(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(manager_module, "PROJECT_OUTPUT_ROOT", tmp_path / "projects")
-    manager = ProjectManager(tmp_path / "learning.db")
+    manager = ProjectManager(tmp_path / "workflows.learning.db")
     project_id = manager.create_project("flight simulation")["project_id"]
     path = manager.uploads_dir(project_id) / "technical-book.pdf"
     path.write_bytes(b"book")

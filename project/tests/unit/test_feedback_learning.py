@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from learning.feedback_learning_service import FeedbackLearningService
-from scenario_engine.scenario_workflow import ScenarioWorkflow
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from workflows.learning.feedback_learning_service import FeedbackLearningService
+from workflows.scenario.scenario_workflow import ScenarioWorkflow
 
 
 @pytest.fixture

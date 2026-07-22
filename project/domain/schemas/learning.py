@@ -1,4 +1,4 @@
-"""Schemas for incremental, project-scoped document learning."""
+"""Schemas for incremental, project-scoped document workflows.learning."""
 
 from __future__ import annotations
 

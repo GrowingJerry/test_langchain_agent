@@ -5,8 +5,8 @@ from typing import Any, Dict
 import pytest
 from pydantic import ValidationError
 
-from equipment.allocation_rules import AllocationRule
-from scenario_engine.quantity_solver import QuantitySolver
+from domain.rules.equipment_allocation import AllocationRule
+from workflows.scenario.quantity_solver import QuantitySolver
 
 
 def _rule(

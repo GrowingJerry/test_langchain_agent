@@ -44,9 +44,26 @@ class AgentRuntimeContext:
             self.used_tool_names.append(tool_name)
 
     def record_chunks(self, chunk_ids: List[str]) -> None:
+        added: List[str] = []
         for chunk_id in chunk_ids:
             if chunk_id and chunk_id not in self.retrieved_source_chunk_ids:
                 self.retrieved_source_chunk_ids.append(chunk_id)
+                added.append(chunk_id)
+        if not added:
+            return
+        connections = getattr(self.manager, "connections", None)
+        if connections is None:
+            return
+        placeholders = ",".join("?" for _ in added)
+        with connections.connection() as conn:
+            rows = conn.execute(
+                f"""SELECT DISTINCT d.filename
+                FROM project_chunks c
+                JOIN project_documents d ON d.document_id=c.document_id
+                WHERE c.project_id=? AND c.chunk_id IN ({placeholders})""",
+                (self.project_id, *added),
+            ).fetchall()
+        self.record_documents([str(row["filename"] or "") for row in rows])
 
     def record_documents(self, document_names: List[str]) -> None:
         for document_name in document_names:

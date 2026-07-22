@@ -8,7 +8,7 @@ from domain.exceptions import ModelUnavailableError, StructuredOutputError
 from domain.schemas.review import Review
 from infrastructure.llm.model_factory import OllamaModelFactory
 from infrastructure.llm.ollama_health import OllamaHealthClient
-from prompts.test_case_review import test_case_review_prompt
+from agents.test_case.review_prompt import test_case_review_prompt
 
 
 class TestCaseReviewChain:

@@ -12,8 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from evaluation.scenario_metrics import evaluate_records  # noqa: E402
-from infrastructure.db.json_codec import dumps_json  # noqa: E402
+from tests.evaluation.scenario_metrics import evaluate_records  # noqa: E402
+from infrastructure.database.json_codec import dumps_json  # noqa: E402
 
 
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -58,10 +58,11 @@ def main() -> int:
                         default=PROJECT_ROOT / "tests/golden/scenario_cases.jsonl")
     parser.add_argument("--allocations", type=Path,
                         default=PROJECT_ROOT / "tests/golden/equipment_allocations.jsonl")
+    report_dir = PROJECT_ROOT / "outputs" / "evaluation"
     parser.add_argument("--json-output", type=Path,
-                        default=PROJECT_ROOT / "evaluation_report.json")
+                        default=report_dir / "evaluation_report.json")
     parser.add_argument("--markdown-output", type=Path,
-                        default=PROJECT_ROOT / "evaluation_report.md")
+                        default=report_dir / "evaluation_report.md")
     args = parser.parse_args()
     report = evaluate_records(read_jsonl(args.scenarios), read_jsonl(args.allocations))
     args.json_output.parent.mkdir(parents=True, exist_ok=True)

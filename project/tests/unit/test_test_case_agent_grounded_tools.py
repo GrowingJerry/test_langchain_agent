@@ -4,16 +4,16 @@ from typing import Any, Sequence
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
-import core.project_manager as manager_module
+import application.services.project_service as manager_module
 from agents.test_case.agent import TestCaseAgent
 from agents.test_case.context import AgentRuntimeContext
 from agents.test_case.output_schema import GeneratedCaseBundle, TestCaseAgentRequest
 from agents.test_case.tools import build_test_case_tools
 from config.settings import Settings
-from core.project_manager import ProjectManager
+from application.services.project_service import ProjectManager
 from domain.schemas.test_case import TestCase
-from infrastructure.db.json_codec import dumps_json
-from infrastructure.db.repositories.base import now_iso
+from infrastructure.database.json_codec import dumps_json
+from infrastructure.repositories.base import now_iso
 
 
 class BindableModel(FakeMessagesListChatModel):

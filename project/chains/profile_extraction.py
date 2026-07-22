@@ -20,7 +20,7 @@ from domain.exceptions import (
 from domain.schemas.project import ExtractedProjectProfile, ProjectProfile
 from infrastructure.llm.model_factory import OllamaModelFactory
 from infrastructure.llm.ollama_health import OllamaHealthClient
-from prompts.profile_extraction import profile_extraction_prompt
+from workflows.learning.profile_prompts import profile_extraction_prompt
 
 
 LOGGER = logging.getLogger(__name__)

@@ -3,12 +3,12 @@ from typing import Any
 
 import pytest
 
-import core.project_manager as manager_module
-from core.project_manager import ProjectManager
-from infrastructure.db.json_codec import dumps_json
-from infrastructure.db.repositories.base import now_iso
-from learning.knowledge_conflict_detector import KnowledgeConflictDetector
-from learning.knowledge_review_service import KnowledgeReviewService
+import application.services.project_service as manager_module
+from application.services.project_service import ProjectManager
+from infrastructure.database.json_codec import dumps_json
+from infrastructure.repositories.base import now_iso
+from workflows.learning.knowledge_conflict_detector import KnowledgeConflictDetector
+from workflows.learning.knowledge_review_service import KnowledgeReviewService
 
 
 @pytest.fixture
