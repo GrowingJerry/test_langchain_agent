@@ -71,7 +71,10 @@ class OllamaModelFactory:
                 if fixed_structured_task
                 else None
             ),
-            reasoning=False if fixed_structured_task else None,
+            # Tool/structured tasks need an answer or tool call, not a separate
+            # thinking block. qwen3 can otherwise keep reasoning after it has
+            # gathered all facts and never submit the response schema.
+            reasoning=False,
             client_kwargs={"timeout": request_timeout},
         )
 

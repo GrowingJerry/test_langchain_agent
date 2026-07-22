@@ -38,6 +38,8 @@ class DocumentParseReport(BaseModel):
     successful_pages: int = 0
     low_text_pages: int = 0
     possible_scanned_pages: int = 0
+    ocr_processed_pages: int = 0
+    ocr_low_confidence_pages: int = 0
     section_count: int = 0
     table_marker_count: int = 0
     figure_marker_count: int = 0
@@ -193,6 +195,14 @@ def _page_from_dict(row: Dict[str, object]) -> ParsedPage:
         text_char_count=int(row.get("text_char_count") or len(str(row.get("text") or ""))),
         needs_ocr=bool(row.get("needs_ocr")),
         parse_warning=str(row.get("parse_warning") or ""),
+        ocr_applied=bool(row.get("ocr_applied")),
+        ocr_engine=str(row.get("ocr_engine") or ""),
+        ocr_confidence=(
+            float(row["ocr_confidence"])
+            if row.get("ocr_confidence") is not None
+            else None
+        ),
+        ocr_dpi=int(row["ocr_dpi"]) if row.get("ocr_dpi") is not None else None,
         chapter_titles=list(row.get("chapter_titles") or []),
         section_titles=list(row.get("section_titles") or []),
         table_titles=list(row.get("table_titles") or []),
@@ -212,6 +222,8 @@ def _merge_parse_reports(
         "successful_pages",
         "low_text_pages",
         "possible_scanned_pages",
+        "ocr_processed_pages",
+        "ocr_low_confidence_pages",
         "section_count",
         "table_marker_count",
         "figure_marker_count",
@@ -316,8 +328,12 @@ def build_document_chunks_with_report(
                 report.warnings.append(warning)
         if page.text_char_count < LOW_TEXT_THRESHOLD:
             report.low_text_pages += 1
-        if page.needs_ocr:
+        if page.needs_ocr or page.ocr_applied:
             report.possible_scanned_pages += 1
+        if page.ocr_applied:
+            report.ocr_processed_pages += 1
+            if page.ocr_confidence is None or page.ocr_confidence < 0.55:
+                report.ocr_low_confidence_pages += 1
         if not page.parse_warning.startswith("页面解析失败"):
             report.successful_pages += 1
         report.table_marker_count += len(page.table_titles)
@@ -358,6 +374,10 @@ def build_document_chunks_with_report(
                     "child_index": child_index,
                     "needs_ocr": page.needs_ocr,
                     "parse_warning": page.parse_warning,
+                    "ocr_applied": page.ocr_applied,
+                    "ocr_engine": page.ocr_engine,
+                    "ocr_confidence": page.ocr_confidence,
+                    "ocr_dpi": page.ocr_dpi,
                     "table_titles": list(page.table_titles),
                     "figure_titles": list(page.figure_titles),
                     "equation_numbers": list(page.equation_numbers),

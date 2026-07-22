@@ -136,11 +136,13 @@ def test_final_provenance_uses_only_observed_tool_results(grounded_context) -> N
     context.record_equipment(["EQ-LOCAL"])
     context.record_rules(["RULE-LOCAL"])
     context.record_validation_runs(["VAL-LOCAL"])
+    context.record_scenarios(["SCN-LOCAL"])
     bundle = GeneratedCaseBundle(
         cases=[TestCase(
             case_id="TC-1", title="场景测试", objective="验证场景",
             test_steps=["执行"], expected_results=["结果"], evaluation_criteria="符合要求",
-            requirement_ids=["REQ-1"], source_chunk_ids=["CHK-LOCAL", "FAKE-CHUNK"],
+            requirement_ids=["FAKE-REQ"], source_chunk_ids=["FAKE-CHUNK"],
+            scenario_ids=["FAKE-SCENARIO"],
         )],
         knowledge_unit_ids=["K-parameter-LOCAL", "FAKE-K"],
         equipment_ids=["EQ-LOCAL", "FAKE-EQ"],
@@ -156,3 +158,5 @@ def test_final_provenance_uses_only_observed_tool_results(grounded_context) -> N
     assert cleaned.configuration_rule_ids == ["RULE-LOCAL"]
     assert cleaned.scenario_validation_run_id == "VAL-LOCAL"
     assert cleaned.cases[0].source_chunk_ids == ["CHK-LOCAL"]
+    assert cleaned.cases[0].requirement_ids == ["REQ-1"]
+    assert cleaned.cases[0].scenario_ids == ["SCN-LOCAL"]

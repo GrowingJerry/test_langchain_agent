@@ -97,6 +97,8 @@ class LearningTaskService:
         try:
             units = existing or self.extractor.extract_and_persist(task, candidates)
             report = self.reports.build(task, candidates, units)
+            extraction_errors = list(self.extractor.last_extraction_errors)
+            report["extraction_errors"] = extraction_errors
         except Exception as exc:
             message = f"{type(exc).__name__}: {exc}"
             with self.manager.connections.transaction() as conn:
@@ -117,7 +119,7 @@ class LearningTaskService:
             )
         return {"task_id": task_id, "status": "completed", "knowledge_units": units,
                 "coverage_candidates": [item.model_dump(mode="json") for item in candidates],
-                "report": report}
+                "report": report, "errors": extraction_errors}
 
     def get_task(self, project_id: str, task_id: str) -> Optional[LearningTask]:
         with self.manager.connections.connection() as conn:

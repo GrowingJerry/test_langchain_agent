@@ -11,6 +11,8 @@ from domain.schemas.learning import KnowledgeCoverageCandidate, LearningTask
 from infrastructure.db.json_codec import dumps_json, loads_json
 from infrastructure.db.repositories.base import new_id, now_iso
 
+MAX_EXTRACTION_CANDIDATES = 6
+
 
 def _terms(task: LearningTask) -> List[str]:
     values = [
@@ -34,6 +36,7 @@ class KnowledgeExtractor:
     def __init__(self, manager: Any, chain: KnowledgeExtractionChain) -> None:
         self.manager = manager
         self.chain = chain
+        self.last_extraction_errors: List[str] = []
 
     def retrieve_candidates(
         self, task: LearningTask, limit: int = 60
@@ -83,7 +86,13 @@ class KnowledgeExtractor:
     def extract_and_persist(
         self, task: LearningTask, candidates: List[KnowledgeCoverageCandidate]
     ) -> List[Dict[str, Any]]:
-        candidate_rows = [item.model_dump(mode="json") for item in candidates]
+        # The first stage retains the complete coverage list. The structured
+        # extraction stage uses a deterministic top-ranked subset so local
+        # models cannot overflow their bounded JSON response.
+        candidate_rows = [
+            item.model_dump(mode="json")
+            for item in candidates[:MAX_EXTRACTION_CANDIDATES]
+        ]
         output = self.chain.run(
             learning_goal=task.learning_goal,
             domain=task.domain,
@@ -92,11 +101,40 @@ class KnowledgeExtractor:
         )
         sources = {item.chunk_id: item for item in candidates}
         saved: List[Dict[str, Any]] = []
+        self.last_extraction_errors = []
         for extracted in output.knowledge_units:
+            if extracted.knowledge_type == "parameter" and extracted.parameter is None:
+                # Small local models sometimes classify formulas, mappings or
+                # rules as parameters without emitting ParameterKnowledge. The
+                # source text is still useful and contains no approved numeric
+                # value, so preserve it under a deterministic non-parameter
+                # type instead of losing the entire extraction batch.
+                recovered_type = (
+                    "simulation_model"
+                    if any(marker in extracted.content for marker in ("=", "±", "π", "公式"))
+                    else "constraint"
+                )
+                self.last_extraction_errors.append(
+                    f"知识 {extracted.title!r} 缺少参数结构，已降级为{recovered_type}候选"
+                )
+                extracted = extracted.model_copy(
+                    update={"knowledge_type": recovered_type}
+                )
             source_ids = [item for item in extracted.source_chunk_ids if item in sources]
             if not source_ids:
-                raise ValueError(f"知识 {extracted.title!r} 缺少有效来源片段")
-            saved.append(self._save_unit(task, extracted, source_ids, sources))
+                self.last_extraction_errors.append(
+                    f"知识 {extracted.title!r} 缺少有效来源片段"
+                )
+                continue
+            try:
+                saved.append(self._save_unit(task, extracted, source_ids, sources))
+            except ValueError as exc:
+                self.last_extraction_errors.append(str(exc))
+        if not saved:
+            raise ValueError(
+                "结构化抽取没有可保存的有效知识："
+                + "；".join(self.last_extraction_errors)
+            )
         return saved
 
     def _save_unit(

@@ -12,7 +12,7 @@ python -m pip install -r requirements-dev.txt
 streamlit run app.py
 ```
 
-可选的 Docling 文档增强依赖单独位于 `requirements-docs.txt`；没有安装时默认 PyMuPDF 仍可工作。本项目不使用或建议使用 `pyproject.toml`。
+可选的 Docling 文档增强依赖单独位于 `requirements-docs.txt`；扫描 PDF 的本地 RapidOCR 依赖位于 `requirements-ocr.txt`。没有安装这些可选依赖时默认 PyMuPDF 仍可工作，并将扫描页标记为 `needs_ocr`。本项目不使用或建议使用 `pyproject.toml`。
 
 ## 主要用户流程
 
@@ -35,6 +35,14 @@ python scripts/import_military_jsonl.py --file data/military.jsonl --project-id 
 `GLOBAL` 是组织级通用装备库。任何查询必须显式设置允许访问 GLOBAL，当前项目数据始终优先。详见 `project/docs/equipment_knowledge_base.md`。
 
 ## 长文档与 Worker
+
+扫描 PDF 建议先安装本地 CPU OCR：
+
+```powershell
+python -m pip install -r requirements-ocr.txt
+```
+
+RapidOCR 仅处理 PyMuPDF 判断为低文本的页面，默认 220 DPI；OCR 文本、页码、平均置信度和引擎信息会随片段保存。
 
 普通小文件同步处理；达到页数或字节阈值的大文件创建 `document_processing_jobs`。启动本地 SQLite Worker：
 

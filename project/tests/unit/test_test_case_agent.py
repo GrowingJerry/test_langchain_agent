@@ -227,7 +227,7 @@ def test_tools_expose_no_project_id_and_only_use_bound_project() -> None:
     assert all(project_id == "P1" for _, project_id in manager.calls)
 
 
-def test_missing_sources_are_marked_for_human_confirmation() -> None:
+def test_observed_prefetch_sources_replace_model_omissions() -> None:
     model = ToolCallingFakeModel(
         responses=[
             AIMessage(
@@ -263,8 +263,9 @@ def test_missing_sources_are_marked_for_human_confirmation() -> None:
     result = TestCaseAgent(runtime(), model).generate(
         TestCaseAgentRequest(requirement_ids=["REQ-1"])
     )
-    assert result.cases[0].need_human_confirm is True
-    assert {"关联场景", "来源片段"} <= set(result.cases[0].missing_information)
+    assert result.cases[0].need_human_confirm is False
+    assert result.cases[0].scenario_ids == ["SCN-1"]
+    assert result.cases[0].source_chunk_ids == ["CHK-1"]
 
 
 def test_history_tool_returns_reference_only_without_project_facts() -> None:
@@ -375,3 +376,22 @@ def test_tool_call_limit_is_enforced() -> None:
         TestCaseAgent(runtime(agent_max_tool_calls=1), model).generate(
             TestCaseAgentRequest(requirement_ids=["REQ-1"])
         )
+
+
+def test_misaligned_step_result_tails_are_removed_without_model_facts() -> None:
+    agent = TestCaseAgent(runtime(), ToolCallingFakeModel(responses=[]))
+    bundle = agent._validated_local_json(AIMessage(content=__import__("json").dumps(
+        bundle_payload(case_payload(
+            test_steps=["步骤一", "没有对应结果的步骤"],
+            expected_results=["结果一"],
+        ))
+    )))
+
+    repaired = agent._repair_structured_bundle(
+        bundle, TestCaseAgentRequest(requirement_ids=["REQ-1"])
+    )
+
+    assert repaired.cases[0].test_steps == ["步骤一"]
+    assert repaired.cases[0].expected_results == ["结果一"]
+    assert repaired.cases[0].need_human_confirm is True
+    assert "步骤/预期结果尾部已截断，需人工确认" in repaired.cases[0].missing_information

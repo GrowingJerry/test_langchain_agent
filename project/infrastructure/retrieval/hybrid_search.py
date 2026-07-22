@@ -9,10 +9,16 @@ from typing import List
 
 def tokenize_query(query: str) -> List[str]:
     """Tokenize Chinese and ASCII query text for conservative matching."""
-    return [
-        token.lower()
-        for token in re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9_]+", query or "")
-    ]
+    tokens: List[str] = []
+    for token in re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9_]+", query or ""):
+        normalized = token.lower()
+        tokens.append(normalized)
+        if re.fullmatch(r"[\u4e00-\u9fff]+", normalized) and len(normalized) > 4:
+            tokens.extend(
+                normalized[index:index + 2]
+                for index in range(len(normalized) - 1)
+            )
+    return list(dict.fromkeys(tokens))
 
 
 def keyword_score(content: str, tokens: List[str]) -> float:

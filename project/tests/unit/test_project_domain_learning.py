@@ -119,3 +119,39 @@ def test_empty_structured_output_is_recorded_as_failure(simulated_book) -> None:
     stored = service.get_task(project_id, task.task_id)
     assert stored is not None and stored.status == "failed"
     assert stored.error_messages
+
+
+def test_invalid_unit_is_reported_without_discarding_valid_units(simulated_book) -> None:
+    manager, project_id, document_id = simulated_book
+    seed = LearningTaskService(
+        manager,
+        KnowledgeExtractionChain(
+            Settings(enable_ollama=False), model=StructuredModel({"knowledge_units": []})
+        ),
+    )
+    task = _task(seed, project_id, document_id)
+    candidate = seed.extractor.retrieve_candidates(task)[0]
+    model = StructuredModel({"knowledge_units": [
+        {
+            "knowledge_type": "parameter", "title": "坏参数", "content": "格式规则",
+            "source_chunk_ids": [candidate.chunk_id], "confidence": 0.9,
+        },
+        {
+            "knowledge_type": "verification_rule", "title": "有效规则",
+            "content": "每步对应一个预期结果", "source_chunk_ids": [candidate.chunk_id],
+            "applicable_conditions": ["测试设计"], "inapplicable_conditions": [],
+            "confidence": 0.9,
+        },
+    ]})
+    service = LearningTaskService(
+        manager, KnowledgeExtractionChain(Settings(enable_ollama=False), model=model)
+    )
+    result = service.run_task(project_id, task.task_id)
+    assert result["status"] == "completed"
+    assert [unit["title"] for unit in result["knowledge_units"]] == [
+        "坏参数", "有效规则"
+    ]
+    assert result["knowledge_units"][0]["knowledge_type"] == "constraint"
+    assert "坏参数" in result["errors"][0]
+    assert "已降级为constraint候选" in result["errors"][0]
+    assert result["report"]["extraction_errors"] == result["errors"]

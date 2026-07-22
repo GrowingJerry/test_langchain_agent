@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, List, Optional
 
 from langchain.agents import create_agent
@@ -13,7 +14,7 @@ from langchain.agents.middleware import (
 )
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from pydantic import ValidationError
 
 from agents.test_case.context import AgentRuntimeContext
@@ -42,14 +43,21 @@ class TestCaseAgent:
         self.runtime = runtime
         self.model = model or OllamaModelFactory(runtime.settings).text_model()
         self.tools = build_test_case_tools(runtime)
+        is_local_ollama = self.model.__class__.__module__.startswith(
+            "langchain_ollama"
+        )
         self.graph = create_agent(
             model=self.model,
             tools=self.tools,
             system_prompt=TEST_CASE_AGENT_SYSTEM_PROMPT,
-            response_format=ToolStrategy(
-                GeneratedCaseBundle,
-                tool_message_content="GeneratedCaseBundle 已通过结构化校验。",
-                handle_errors="结构化输出不符合 GeneratedCaseBundle，请仅修正字段后重试。",
+            response_format=(
+                ProviderStrategy(GeneratedCaseBundle)
+                if is_local_ollama
+                else ToolStrategy(
+                    GeneratedCaseBundle,
+                    tool_message_content="GeneratedCaseBundle 已通过结构化校验。",
+                    handle_errors="结构化输出不符合 GeneratedCaseBundle，请仅修正字段后重试。",
+                )
             ),
             middleware=self._middleware(),
             name="project_test_case_agent",
@@ -92,12 +100,24 @@ class TestCaseAgent:
             request.additional_instructions,
             request.scenario_ids,
         )
+        prefetched = self._prefetch_required_context(request)
+        if prefetched:
+            prompt += (
+                "\n以下是运行时通过当前项目只读工具预取的实际结果。不得重复调用这些"
+                "目标工具；只能使用其中事实：\n"
+                + json.dumps(prefetched, ensure_ascii=False, default=str)[:24000]
+            )
         try:
             state = self.graph.invoke(
                 {"messages": [{"role": "user", "content": prompt}]},
                 config={
-                    "recursion_limit": self.runtime.settings.agent_max_model_calls * 2
-                    + 3
+                    # LangGraph counts model and tool supersteps separately. The
+                    # middleware remains the authoritative finite call budget.
+                    "recursion_limit": (
+                        self.runtime.settings.agent_max_model_calls
+                        + self.runtime.settings.agent_max_tool_calls
+                        + 5
+                    )
                 },
             )
         except (ModelCallLimitExceededError, ToolCallLimitExceededError) as exc:
@@ -111,7 +131,8 @@ class TestCaseAgent:
         except Exception as exc:
             if exc.__class__.__name__ == "GraphRecursionError":
                 raise AgentCallLimitError(
-                    f"Test-case Agent recursion limit exceeded: {exc}"
+                    "Test-case Agent recursion limit exceeded after tools "
+                    f"{self.runtime.used_tool_names}: {exc}"
                 ) from exc
             raise AgentExecutionError(
                 f"Test-case Agent execution failed: {exc!r}"
@@ -121,9 +142,9 @@ class TestCaseAgent:
             state.get("structured_response") if isinstance(state, dict) else None
         )
         if structured is None:
-            raise StructuredOutputError(
-                "Test-case Agent returned no structured_response"
-            )
+            messages = state.get("messages", []) if isinstance(state, dict) else []
+            last_message = messages[-1] if messages else None
+            structured = self._validated_local_json(last_message)
         try:
             bundle = (
                 structured
@@ -138,7 +159,91 @@ class TestCaseAgent:
             raise StructuredOutputError(
                 f"Agent produced {len(bundle.cases)} cases, exceeding requested limit {request.case_count}"
             )
+        if any(
+            len(case.test_steps) != len(case.expected_results)
+            for case in bundle.cases
+        ):
+            bundle = self._repair_structured_bundle(bundle, request)
         return self._apply_observed_provenance(bundle, request)
+
+    def _prefetch_required_context(
+        self, request: TestCaseAgentRequest
+    ) -> List[dict[str, Any]]:
+        """Deterministically obtain mandatory target facts before model planning."""
+        tools = {item.name: item for item in self.tools}
+        results: List[dict[str, Any]] = []
+        for scenario_id in request.scenario_ids:
+            for name in (
+                "get_compiled_scenario",
+                "get_scenario_equipment_allocation",
+                "get_scenario_validation_result",
+            ):
+                results.append({
+                    "tool": name,
+                    "result": tools[name].invoke({"scenario_id": scenario_id}),
+                })
+        for requirement_id in request.requirement_ids:
+            results.append({
+                "tool": "get_requirement_context",
+                "result": tools["get_requirement_context"].invoke({
+                    "requirement_id": requirement_id
+                }),
+            })
+            results.append({
+                "tool": "get_related_scenarios",
+                "result": tools["get_related_scenarios"].invoke({
+                    "requirement_id": requirement_id
+                }),
+            })
+        if len(results) > self.runtime.settings.agent_max_tool_calls:
+            raise AgentCallLimitError(
+                "Mandatory target prefetch exceeds the configured tool-call limit"
+            )
+        return results
+
+    @staticmethod
+    def _validated_local_json(message: Any) -> GeneratedCaseBundle:
+        """Validate JSON emitted as plain text by local tool-capable models."""
+        content = str(getattr(message, "content", "") or "").strip()
+        if content.startswith("```"):
+            content = content.removeprefix("```json").removeprefix("```")
+            content = content.removesuffix("```").strip()
+        try:
+            return GeneratedCaseBundle.model_validate(json.loads(content))
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            raise StructuredOutputError(
+                "Test-case Agent returned neither ToolStrategy output nor valid "
+                f"GeneratedCaseBundle JSON: {exc}"
+            ) from exc
+
+    def _repair_structured_bundle(
+        self, bundle: GeneratedCaseBundle, request: TestCaseAgentRequest
+    ) -> GeneratedCaseBundle:
+        """Deterministically remove unpaired tails without inventing content."""
+        repaired_cases = []
+        warnings = list(bundle.warnings)
+        for case in bundle.cases[:request.case_count]:
+            pair_count = min(len(case.test_steps), len(case.expected_results))
+            if pair_count <= 0:
+                raise StructuredOutputError(
+                    f"Case {case.case_id} has no complete step/result pair"
+                )
+            warnings.append(
+                f"用例 {case.case_id} 的步骤与预期结果数量不一致；"
+                "已确定性删除无对应关系的尾部内容"
+            )
+            repaired_cases.append(case.model_copy(update={
+                "test_steps": case.test_steps[:pair_count],
+                "expected_results": case.expected_results[:pair_count],
+                "need_human_confirm": True,
+                "missing_information": list(dict.fromkeys([
+                    *case.missing_information, "步骤/预期结果尾部已截断，需人工确认"
+                ])),
+            }))
+        return bundle.model_copy(update={
+            "cases": repaired_cases,
+            "warnings": list(dict.fromkeys(warnings)),
+        })
 
     def _apply_observed_provenance(
         self,
@@ -146,25 +251,25 @@ class TestCaseAgent:
         request: TestCaseAgentRequest,
     ) -> GeneratedCaseBundle:
         """Replace model-claimed tool/source metadata with observed current-project provenance."""
-        requested_requirements = set(request.requirement_ids)
-        allowed_chunks = set(self.runtime.retrieved_source_chunk_ids)
-        allowed_documents = set(self.runtime.retrieved_source_documents)
-        allowed_scenarios = set(self.runtime.retrieved_scenario_ids)
+        # Model-declared source IDs are untrusted. Request requirement IDs come
+        # from the user; all other provenance comes from project-bound tools.
+        observed_requirement_ids = list(dict.fromkeys(request.requirement_ids))
+        observed_chunk_ids = list(
+            dict.fromkeys(self.runtime.retrieved_source_chunk_ids)
+        )
+        observed_documents = list(
+            dict.fromkeys(self.runtime.retrieved_source_documents)
+        )
+        observed_scenario_ids = list(
+            dict.fromkeys(self.runtime.retrieved_scenario_ids)
+        )
         warnings = list(bundle.warnings)
         cases = []
         for case in bundle.cases:
-            requirement_ids = [
-                item for item in case.requirement_ids if item in requested_requirements
-            ]
-            source_chunk_ids = [
-                item for item in case.source_chunk_ids if item in allowed_chunks
-            ]
-            source_documents = [
-                item for item in case.source_documents if item in allowed_documents
-            ]
-            scenario_ids = [
-                item for item in case.scenario_ids if item in allowed_scenarios
-            ]
+            requirement_ids = observed_requirement_ids
+            source_chunk_ids = observed_chunk_ids
+            source_documents = observed_documents
+            scenario_ids = observed_scenario_ids
             missing = list(case.missing_information)
             if request.requirement_ids and not requirement_ids:
                 missing.append("关联需求")

@@ -51,6 +51,10 @@ class Settings(BaseModel):
     background_document_bytes_threshold: int = Field(
         default=5 * 1024 * 1024, ge=1024, le=200 * 1024 * 1024
     )
+    document_ocr_enabled: bool = True
+    document_ocr_engine: str = "rapidocr"
+    document_ocr_dpi: int = Field(default=220, ge=96, le=400)
+    document_ocr_min_confidence: float = Field(default=0.55, ge=0.0, le=1.0)
     log_level: str = "INFO"
     langsmith_tracing: bool = False
     data_dir: Path = PROJECT_ROOT / "data"

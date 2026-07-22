@@ -10,7 +10,16 @@
 
 ## 几百页书籍
 
-默认 PyMuPDF 逐页解析；可选 Docling 由 `requirements-docs.txt` 管理。技术书籍使用章节感知父子分块，child 保存 `parent_section_id` 和页码范围。扫描页只标记 `needs_ocr=true`。文件哈希避免重复解析，检查点支持中断恢复，单页异常进入报告而不终止全书。
+默认 PyMuPDF 逐页解析；可选 Docling 由 `requirements-docs.txt` 管理。安装 `requirements-ocr.txt` 后，文本低于阈值的扫描页会按需渲染并由 RapidOCR 本地识别，普通文本页不会重复 OCR。未安装 OCR 依赖时仍只标记 `needs_ocr=true`，不影响普通文档运行。技术书籍使用章节感知父子分块，child 保存 `parent_section_id`、页码、OCR引擎、置信度和DPI。文件哈希避免重复解析，检查点支持中断恢复，单页 OCR 异常进入报告而不终止全书。
+
+安装与配置：
+
+```powershell
+conda activate test_agent
+python -m pip install -r requirements-ocr.txt
+```
+
+可通过 `DOCUMENT_OCR_ENABLED`、`DOCUMENT_OCR_ENGINE`、`DOCUMENT_OCR_DPI` 和 `DOCUMENT_OCR_MIN_CONFIDENCE` 调整。默认使用 RapidOCR、220 DPI、最低平均置信度 0.55。长文档仍由 `python scripts/run_learning_worker.py` 后台逐页处理。
 
 大文件上传后启动 Worker：
 

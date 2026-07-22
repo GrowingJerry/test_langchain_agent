@@ -108,6 +108,11 @@ class UIApplicationService:
                 **document,
                 "parser": document.get("parser_type") or report.get("parser_type") or "",
                 "total_pages": report.get("total_pages") or 0,
+                "ocr_processed_pages": report.get("ocr_processed_pages") or 0,
+                "ocr_low_confidence_pages": (
+                    report.get("ocr_low_confidence_pages") or 0
+                ),
+                "possible_scanned_pages": report.get("possible_scanned_pages") or 0,
                 "chunk_count": counts.get(str(document["document_id"]), 0),
                 "warnings": report.get("warnings") or [],
             })

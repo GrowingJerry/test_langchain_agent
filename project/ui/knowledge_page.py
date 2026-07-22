@@ -102,6 +102,8 @@ def _render_project_documents(service: Any, project_id: str, case_library: Any) 
         summary = [{
             "document_id": row["document_id"], "文件名": row["filename"],
             "解析器": row.get("parser", ""), "页数": row.get("total_pages", 0),
+            "OCR页数": row.get("ocr_processed_pages", 0),
+            "OCR低置信页": row.get("ocr_low_confidence_pages", 0),
             "片段数": row.get("chunk_count", 0),
             "状态": row.get("processing_status", ""),
             "警告": row.get("warnings", []),

@@ -5,6 +5,8 @@ from __future__ import annotations
 from document_parsers.base import DocumentParser
 from document_parsers.docling_parser import DoclingParser
 from document_parsers.pymupdf_parser import PyMuPDFParser
+from document_ocr.rapidocr_engine import RapidOcrEngine
+from config.settings import settings
 
 
 class ParserRouter:
@@ -14,8 +16,12 @@ class ParserRouter:
             parser = DoclingParser()
             if parser.is_available():
                 return parser
-        parser = PyMuPDFParser()
+        ocr_engine = None
+        if settings.document_ocr_enabled and settings.document_ocr_engine == "rapidocr":
+            candidate = RapidOcrEngine(settings.document_ocr_min_confidence)
+            if candidate.is_available():
+                ocr_engine = candidate
+        parser = PyMuPDFParser(ocr_engine=ocr_engine, ocr_dpi=settings.document_ocr_dpi)
         if not parser.is_available():
             raise RuntimeError("PyMuPDF is required for PDF parsing")
         return parser
-

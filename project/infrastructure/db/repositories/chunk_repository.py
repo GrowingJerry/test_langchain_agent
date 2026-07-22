@@ -43,6 +43,10 @@ class ChunkRepository(BaseRepository):
                         "parent_section_id",
                         "needs_ocr",
                         "parse_warning",
+                        "ocr_applied",
+                        "ocr_engine",
+                        "ocr_confidence",
+                        "ocr_dpi",
                         "section_title",
                         "child_index",
                         "table_titles",
@@ -140,6 +144,10 @@ class ChunkRepository(BaseRepository):
                         "parent_section_id",
                         "needs_ocr",
                         "parse_warning",
+                        "ocr_applied",
+                        "ocr_engine",
+                        "ocr_confidence",
+                        "ocr_dpi",
                         "section_title",
                         "child_index",
                         "table_titles",
@@ -220,7 +228,14 @@ class ChunkRepository(BaseRepository):
                 ON c.document_id=d.document_id WHERE c.project_id=? ORDER BY c.created_at,c.chunk_index LIMIT ?""",
                 (project_id, limit),
             )
-            return [dict(row) for row in rows]
+            result = []
+            for row in rows:
+                item = dict(row)
+                metadata = loads_json(item.get("metadata_json"), {})
+                for key, value in metadata.items():
+                    item.setdefault(key, value)
+                result.append(item)
+            return result
 
     def combined_text(self, project_id: str, max_chars: int = 24000) -> str:
         return "\n\n".join(

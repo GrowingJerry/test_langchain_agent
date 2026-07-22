@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 from document_parsers.base import ParsedPage
+from document_ocr.base import OcrEngine
 
 
 CHAPTER_RE = re.compile(r"^(?:第[一二三四五六七八九十百零〇\d]+章\s*.+|CHAPTER\s+\d+.*)$", re.I)
@@ -42,8 +43,15 @@ def detect_page_markers(page: ParsedPage) -> None:
 class PyMuPDFParser:
     parser_type = "pymupdf"
 
-    def __init__(self, scanned_text_threshold: int = 20) -> None:
+    def __init__(
+        self,
+        scanned_text_threshold: int = 20,
+        ocr_engine: OcrEngine | None = None,
+        ocr_dpi: int = 220,
+    ) -> None:
         self.scanned_text_threshold = scanned_text_threshold
+        self.ocr_engine = ocr_engine
+        self.ocr_dpi = ocr_dpi
 
     def is_available(self) -> bool:
         try:
@@ -70,7 +78,29 @@ class PyMuPDFParser:
                     count = len(text)
                     needs_ocr = count < self.scanned_text_threshold
                     warning = ""
-                    if needs_ocr:
+                    ocr_applied = False
+                    ocr_engine = ""
+                    ocr_confidence = None
+                    if needs_ocr and self.ocr_engine is not None:
+                        try:
+                            scale = self.ocr_dpi / 72
+                            pixmap = page.get_pixmap(
+                                matrix=fitz.Matrix(scale, scale), alpha=False
+                            )
+                            ocr = self.ocr_engine.recognize(pixmap.tobytes("png"))
+                            del pixmap
+                            ocr_applied = True
+                            ocr_engine = ocr.engine
+                            ocr_confidence = ocr.confidence
+                            ocr_text = normalize_page_text(ocr.text)
+                            if ocr_text:
+                                text = ocr_text
+                                count = len(text)
+                                needs_ocr = False
+                            warning = "；".join(ocr.warnings)
+                        except Exception as exc:
+                            warning = f"RapidOCR页面识别失败：{type(exc).__name__}: {exc}"
+                    elif needs_ocr:
                         warning = "页面文本过少，可能为扫描页；已标记needs_ocr，未自动执行OCR"
                     result = ParsedPage(
                         page_no=page_no,
@@ -79,6 +109,10 @@ class PyMuPDFParser:
                         text_char_count=count,
                         needs_ocr=needs_ocr,
                         parse_warning=warning,
+                        ocr_applied=ocr_applied,
+                        ocr_engine=ocr_engine,
+                        ocr_confidence=ocr_confidence,
+                        ocr_dpi=self.ocr_dpi if ocr_applied else None,
                     )
                     detect_page_markers(result)
                     yield result
@@ -91,4 +125,3 @@ class PyMuPDFParser:
                         needs_ocr=False,
                         parse_warning=f"页面解析失败：{type(exc).__name__}: {exc}",
                     )
-

@@ -139,11 +139,26 @@ def evaluate_case_quality(
         + json.dumps(context.get("related_chunks") or [], ensure_ascii=False)
         + scenario_text
     )
+    # Persistence identifiers contain random digits and are not test metrics.
+    # Excluding provenance/metadata prevents run IDs and chunk IDs from being
+    # misclassified as unsupported numeric facts.
+    metadata_fields = {
+        "case_id",
+        "project_id",
+        "requirement_id",
+        "scenario_id",
+        "requirement_ids",
+        "scenario_ids",
+        "source_chunk_ids",
+        "source_documents",
+        "generation_run_id",
+        "context_id",
+    }
     case_text = json.dumps(
         {
             k: v
             for k, v in case.items()
-            if k not in ("case_id", "project_id", "requirement_id")
+            if k not in metadata_fields
         },
         ensure_ascii=False,
     )

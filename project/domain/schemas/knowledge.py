@@ -58,7 +58,9 @@ class ParameterKnowledge(BaseModel):
 
     name: str
     symbol: str = ""
-    value: Any = None
+    # Avoid an untyped JSON-Schema node: Ollama rejects properties without a
+    # concrete type in its native structured-output `format` schema.
+    value: str | int | float | bool | None = None
     unit: str = ""
     valid_range: str = ""
     operating_condition: str = ""

@@ -1,0 +1,3 @@
+# Optional local OCR for scanned PDF pages (Python 3.10, CPU runtime).
+rapidocr>=3.0,<4.0
+onnxruntime>=1.17,<2.0
