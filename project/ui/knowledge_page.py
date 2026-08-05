@@ -57,17 +57,45 @@ def _render_document_jobs(service: Any, project_id: str) -> None:
 
 def _render_visual_evidence_area(service: Any, project_id: str) -> None:
     with st.expander("多模态资料 / 图片证据抽取"):
-        st.info("视觉识别结果仅作为测试设计证据，需要人工确认。")
+        st.info("视觉识别结果仅作为测试设计辅助证据，需要人工确认；建议先解析入库需求，再把图片绑定到对应需求。")
+        requirements = []
+        try:
+            requirements = service.list_requirements(project_id)
+        except Exception as exc:  # noqa: BLE001 - UI must not crash on optional evidence binding.
+            st.warning(f"读取需求列表失败，图片仍可上传但不会绑定需求：{exc}")
+        selectable_requirements = [
+            row for row in requirements if str(row.get("requirement_id") or "").strip()
+        ]
+        requirement_options = [{"requirement_id": "", "title": "暂不绑定需求"}] + selectable_requirements
+        selected_requirement = st.selectbox(
+            "关联需求（建议选择，未绑定图片不会参与按需求生成）",
+            requirement_options,
+            format_func=lambda row: (
+                "暂不绑定需求"
+                if not row.get("requirement_id")
+                else f"{row.get('requirement_id')} · {row.get('title') or row.get('description') or ''}"[:120]
+            ),
+            key=f"visual_requirement_{project_id}",
+        )
+        selected_requirement_id = str(selected_requirement.get("requirement_id") or "").strip()
         images = st.file_uploader(
             "上传截图、流程图、扫描页或设备界面图", type=IMAGE_TYPES,
             accept_multiple_files=True, key=f"visual_assets_{project_id}",
         )
         if st.button("上传并抽取视觉证据", disabled=not images,
                      key=f"extract_visual_{project_id}"):
+            if not selected_requirement_id:
+                st.warning("本次图片未绑定需求：将保存证据，但默认不会参与按需求生成用例。")
             for image in images or []:
-                result = service.process_visual_upload(project_id, image.name, image.getvalue())
+                result = service.process_visual_upload(
+                    project_id,
+                    image.name,
+                    image.getvalue(),
+                    requirement_id=selected_requirement_id,
+                )
                 if result.get("ok"):
-                    st.success(f"{image.name} 已保存：{result['evidence_id']}")
+                    suffix = f"，已绑定需求 {selected_requirement_id}" if selected_requirement_id else "，未绑定需求"
+                    st.success(f"{image.name} 已保存：{result['evidence_id']}{suffix}")
                     st.json(result.get("data") or {})
                 else:
                     st.warning(f"{image.name} 抽取失败：{result.get('error')}")
@@ -76,9 +104,10 @@ def _render_visual_evidence_area(service: Any, project_id: str) -> None:
 def _render_project_documents(service: Any, project_id: str, case_library: Any) -> None:
     files = st.file_uploader(
         "上传项目说明书、需求、接口、标准或技术资料",
-        type=["txt", "md", "docx", "pdf"], accept_multiple_files=True,
+        type=["txt", "md", "doc", "docx", "pdf"], accept_multiple_files=True,
         key=f"docs_{project_id}",
     )
+    st.caption("支持 txt、md、doc、docx、pdf；正式需求文档建议使用 docx。.doc 会尽量解析，无法保留完整结构时会提示转换。")
     if st.button("上传、解析并入库", disabled=not files, type="primary",
                  key=f"ingest_{project_id}"):
         for item in files or []:

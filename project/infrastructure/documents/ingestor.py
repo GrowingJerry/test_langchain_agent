@@ -10,14 +10,14 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from infrastructure.documents.document_parser import read_docx_text
+from infrastructure.documents.document_parser import read_docx_text, read_word_document
 from application.services.project_service import ProjectManager
 from infrastructure.documents.parsers.base import DocumentParser, ParsedPage
 from infrastructure.documents.parsers.parser_router import ParserRouter
 from infrastructure.database.json_codec import loads_json
 
 
-SUPPORTED_TYPES = {".txt", ".md", ".docx", ".pdf"}
+SUPPORTED_TYPES = {".txt", ".md", ".docx", ".doc", ".pdf"}
 BOOK_PAGE_THRESHOLD = 50
 LOW_TEXT_THRESHOLD = 80
 DEFAULT_CHECKPOINT_PAGES = 20
@@ -103,6 +103,20 @@ def iter_project_document_pages(
                 "text_char_count": len(text),
                 "needs_ocr": False,
                 "parse_warning": "",
+            }
+        return
+    if suffix == ".doc":
+        parsed = read_word_document(path)
+        text = _normalize_extracted_text(parsed.text)
+        if text and start_page <= 1:
+            yield {
+                "page_no": None,
+                "text": text,
+                "source_type": "doc",
+                "parser_type": "doc",
+                "text_char_count": len(text),
+                "needs_ocr": False,
+                "parse_warning": "legacy .doc 已按纯文本解析；建议转换为 .docx 以保留完整标题和表格结构",
             }
         return
     if suffix != ".pdf":
@@ -418,7 +432,7 @@ def save_and_ingest_document(
     clean_name = safe_filename(filename)
     suffix = Path(clean_name).suffix.lower()
     if suffix not in SUPPORTED_TYPES:
-        raise ValueError("仅支持 txt、md、docx、pdf 文件")
+        raise ValueError("仅支持 txt、md、doc、docx、pdf 文件；正式需求文档建议使用 docx")
     content_hash = hashlib.sha256(content).hexdigest()
     existing = manager.get_document_by_hash(project_id, content_hash)
     if existing and existing.get("processing_status") == "completed":

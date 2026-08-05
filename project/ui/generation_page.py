@@ -8,7 +8,12 @@ from typing import Any
 import streamlit as st
 
 from application.services.generation_service import GenerationRequest
+from application.services.test_type_recommendation import (
+    apply_manual_case_type,
+    sync_case_type_state,
+)
 from application.services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
+from domain.rules.test_types import LABELS
 
 TEST_TYPES = ["功能测试", "性能测试", "接口测试", "异常测试", "安全性测试", "可靠性测试"]
 
@@ -17,8 +22,73 @@ def _flat(value: Any) -> Any:
     return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
 
 
+TEST_TYPES = LABELS
+
+
 def _rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{key: _flat(value) for key, value in item.items()} for item in items]
+
+
+def _requirement_preview_rows(requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for row in requirements:
+        evidence = row.get("source_evidence") or []
+        first = evidence[0] if evidence and isinstance(evidence[0], dict) else {}
+        rows.append({
+            "原始需求编号": row.get("requirement_id", ""),
+            "标题": row.get("title", ""),
+            "章节路径": " / ".join(row.get("section_path") or []),
+            "需求类型": row.get("requirement_type") or row.get("category", ""),
+            "推荐测试类型": row.get("recommended_test_type", ""),
+            "候选测试类型": row.get("alternative_test_types") or [],
+            "置信度": row.get("test_type_confidence", 0),
+            "判断依据": row.get("test_type_reasons") or [],
+            "来源文档": ", ".join(row.get("source_documents") or [row.get("source_document", "")]),
+            "位置": f"表{first.get('table_index') or ''} 行{first.get('row_index') or ''}".strip(),
+            "需人工确认": bool(row.get("need_human_confirm")),
+        })
+    return _rows(rows)
+
+
+def _review_rows(requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for row in requirements:
+        rows.append({
+            "retained": bool(row.get("retained", True)),
+            "requirement_id": row.get("requirement_id", ""),
+            "title": row.get("title", ""),
+            "description": row.get("description", ""),
+            "requirement_type": row.get("requirement_type", ""),
+            "recommended_test_type": row.get("recommended_test_type", ""),
+            "alternative_test_types": "、".join(row.get("alternative_test_types") or []),
+            "inputs": "；".join(row.get("inputs") or []),
+            "outputs": "；".join(row.get("outputs") or []),
+            "exception_rules": "；".join(row.get("exception_rules") or []),
+            "need_human_confirm": bool(row.get("need_human_confirm")),
+        })
+    return rows
+
+
+def _rows_to_reviewed_dicts(edited: list[dict[str, Any]], machine: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    machine_by_id = {str(row.get("requirement_id") or ""): row for row in machine}
+    result = []
+    for row in edited:
+        base = dict(machine_by_id.get(str(row.get("requirement_id") or ""), {}))
+        base.update({
+            "retained": bool(row.get("retained", True)),
+            "requirement_id": row.get("requirement_id", ""),
+            "title": row.get("title", ""),
+            "description": row.get("description", ""),
+            "requirement_type": row.get("requirement_type", ""),
+            "recommended_test_type": row.get("recommended_test_type", ""),
+            "alternative_test_types": [part.strip() for part in str(row.get("alternative_test_types") or "").replace(",", "、").split("、") if part.strip()],
+            "inputs": [part.strip() for part in str(row.get("inputs") or "").split("；") if part.strip()],
+            "outputs": [part.strip() for part in str(row.get("outputs") or "").split("；") if part.strip()],
+            "exception_rules": [part.strip() for part in str(row.get("exception_rules") or "").split("；") if part.strip()],
+            "need_human_confirm": bool(row.get("need_human_confirm")),
+        })
+        result.append(base)
+    return result
 
 
 def _execution_mode(config: dict[str, Any], key: str) -> str:
@@ -268,23 +338,87 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         service.extract_profile(project_id, config["use_ollama"])
         st.rerun()
     if buttons[1].button("抽取/更新需求", key=f"requirements_{project_id}"):
-        service.extract_requirements(project_id)
-        st.rerun()
+        st.session_state[f"requirement_extraction_preview_{project_id}"] = (
+            service.preview_requirement_extraction(project_id)
+        )
     if buttons[2].button("抽取/更新旧场景卡", key=f"legacy_scenarios_{project_id}"):
         service.extract_scenarios(project_id, config["use_ollama"])
         st.rerun()
+    preview = st.session_state.get(f"requirement_extraction_preview_{project_id}")
+    if preview:
+        report = preview.get("report") or {}
+        st.subheader("需求抽取质量摘要")
+        st.json(report)
+        machine_rows = list(preview.get("requirements") or [])
+        edited_rows = st.data_editor(
+            _review_rows(machine_rows),
+            hide_index=True,
+            use_container_width=True,
+            key=f"requirement_review_editor_{project_id}",
+        )
+        if st.button("保存审核后的需求清单", type="primary", key=f"save_reviewed_requirements_{project_id}"):
+            reviewed = _rows_to_reviewed_dicts(edited_rows, machine_rows)
+            service.save_reviewed_requirements(project_id, reviewed, machine_rows)
+            st.session_state.pop(f"requirement_extraction_preview_{project_id}", None)
+            st.success("审核后的需求已入库。")
+            st.rerun()
     requirements = service.list_requirements(project_id)
     if not requirements:
         st.info("请先上传资料并抽取需求。")
         return
+    st.subheader("需求抽取预览")
+    st.dataframe(_requirement_preview_rows(requirements), hide_index=True, use_container_width=True)
     requirement = st.selectbox(
         "选择需求", requirements,
         format_func=lambda row: f"{row['requirement_id']} · {row.get('title', '')}",
         key=f"selected_requirement_{project_id}",
     )
+    recommendation = sync_case_type_state(
+        st.session_state,
+        [requirement],
+        current_default=TEST_TYPES[0],
+    )
+    distribution = recommendation.get("type_distribution") or {}
+    if distribution:
+        st.caption("类型分布：" + "、".join(f"{key}{value}条" for key, value in distribution.items()))
+    if recommendation.get("recommended_case_type"):
+        st.info(
+            f"系统推荐：{recommendation['recommended_case_type']}；"
+            f"置信度：{float(recommendation.get('recommendation_confidence') or 0):.2f}"
+        )
+    else:
+        st.warning("未能从需求中确定测试类型，请人工选择。")
+    if recommendation.get("recommended_alternatives"):
+        st.caption("候选类型：" + "、".join(recommendation["recommended_alternatives"]))
+    if recommendation.get("recommendation_reasons"):
+        with st.expander("推荐依据"):
+            st.write("\n".join(f"- {item}" for item in recommendation["recommendation_reasons"]))
+    if recommendation.get("needs_human_confirm"):
+        st.warning("建议人工确认测试类型；用户最终选择会优先生效。")
     left, right = st.columns(2)
-    case_type = left.selectbox("测试类型", TEST_TYPES, key=f"requirement_type_{project_id}")
-    count = right.number_input("用例数量", 1, 20, 1, key=f"requirement_count_{project_id}")
+    case_type_key = f"requirement_type_{project_id}"
+    if not recommendation.get("case_type_manually_overridden"):
+        st.session_state[case_type_key] = recommendation["selected_case_type"]
+    case_type = left.selectbox(
+        "测试类型",
+        TEST_TYPES,
+        key=case_type_key,
+    )
+    recommendation = apply_manual_case_type(st.session_state, case_type)
+    count = right.number_input("用例数量", 1, 20, int(recommendation.get("selected_case_count") or 1), key=f"requirement_count_{project_id}")
+    recommendation["selected_case_count"] = int(count)
+    if recommendation.get("case_type_manually_overridden"):
+        st.warning(
+            f"用户最终选择为 {recommendation['selected_case_type']}，与系统推荐 "
+            f"{recommendation.get('recommended_case_type') or '未确定'} 不一致；本次生成将采用人工选择。"
+        )
+    st.info(
+        "生成摘要："
+        f"需求 {requirement['requirement_id']}；"
+        f"系统推荐 {recommendation.get('recommended_case_type') or '未确定'}；"
+        f"最终类型 {recommendation['selected_case_type']}；"
+        f"用例数量 {int(count)}。"
+    )
     mode = _execution_mode(config, f"requirement_exec_{project_id}")
     use_kb = st.checkbox("使用当前项目知识库", True, key=f"requirement_kb_{project_id}")
     history = st.checkbox(
@@ -292,9 +426,10 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         disabled=case_library is None, key=f"requirement_history_{project_id}",
     )
     preview_col, generate_col = st.columns(2)
-    if preview_col.button("预览生成上下文", key=f"preview_{project_id}"):
-        st.session_state[f"preview_{project_id}"] = service.preview_generation(
-            project_id, requirement["requirement_id"], case_type,
+    preview_state_key = f"generation_preview_context_{project_id}"
+    if preview_col.button("预览生成上下文", key=f"preview_button_{project_id}"):
+        st.session_state[preview_state_key] = service.preview_generation(
+            project_id, requirement["requirement_id"], recommendation["selected_case_type"],
             int(config["top_k"]), use_kb, history,
         )
     if generate_col.button("按需求生成测试用例", type="primary", key=f"generate_{project_id}"):
@@ -311,11 +446,16 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
                 generated = service.generate(GenerationRequest(
                     project_id=project_id,
                     requirement_ids=[requirement["requirement_id"]],
-                    case_type=case_type,
+                    case_type=recommendation["selected_case_type"],
                     case_count=int(count),
                     requested_mode=mode,
                     use_project_kb=use_kb,
                     use_history=history,
+                    recommended_test_type=recommendation.get("recommended_case_type", ""),
+                    selected_test_type=recommendation["selected_case_type"],
+                    test_type_overridden=bool(recommendation.get("case_type_manually_overridden")),
+                    test_type_confidence=float(recommendation.get("recommendation_confidence") or 0),
+                    test_type_reasons=list(recommendation.get("recommendation_reasons") or []),
                 ))
                 result = generated.model_dump(mode="json")
                 finish_once(st.session_state, guard_key, fingerprint, result)
@@ -323,9 +463,9 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
             except Exception as exc:
                 fail_once(st.session_state, guard_key)
                 st.error(f"生成失败：{type(exc).__name__}: {exc}")
-    if st.session_state.get(f"preview_{project_id}"):
+    if st.session_state.get(preview_state_key):
         with st.expander("生成上下文预览"):
-            st.json(st.session_state[f"preview_{project_id}"])
+            st.json(st.session_state[preview_state_key])
     if st.session_state.get(f"requirement_result_{project_id}"):
         _show_cases(st.session_state[f"requirement_result_{project_id}"], "按需求生成结果")
 
@@ -357,3 +497,4 @@ def render_generation_page(
         with st.expander("历史质量评分"):
             st.dataframe(scores, hide_index=True, use_container_width=True)
     st.info("生成后可在“结果审查与追溯”中查看完整来源并完成人工确认。")
+

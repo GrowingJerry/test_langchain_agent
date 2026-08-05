@@ -8,7 +8,7 @@ from typing import Dict
 
 from infrastructure.database.connection import SQLiteConnectionManager
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 14
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -312,6 +312,48 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
             """
         )
         cursor = conn.cursor()
+        _ensure_columns(
+            cursor,
+            "generation_runs",
+            {
+                "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
+            },
+        )
+        _ensure_columns(
+            cursor,
+            "project_requirements",
+            {
+                "requirement_type": "TEXT NOT NULL DEFAULT ''",
+                "section_number": "TEXT NOT NULL DEFAULT ''",
+                "section_path_json": "TEXT NOT NULL DEFAULT '[]'",
+                "test_object": "TEXT NOT NULL DEFAULT ''",
+                "actors_json": "TEXT NOT NULL DEFAULT '[]'",
+                "preconditions_json": "TEXT NOT NULL DEFAULT '[]'",
+                "inputs_json": "TEXT NOT NULL DEFAULT '[]'",
+                "processing_rules_json": "TEXT NOT NULL DEFAULT '[]'",
+                "outputs_json": "TEXT NOT NULL DEFAULT '[]'",
+                "exception_rules_json": "TEXT NOT NULL DEFAULT '[]'",
+                "performance_constraints_json": "TEXT NOT NULL DEFAULT '[]'",
+                "interface_constraints_json": "TEXT NOT NULL DEFAULT '[]'",
+                "security_constraints_json": "TEXT NOT NULL DEFAULT '[]'",
+                "acceptance_criteria_json": "TEXT NOT NULL DEFAULT '[]'",
+                "priority": "TEXT NOT NULL DEFAULT ''",
+                "verification_method": "TEXT NOT NULL DEFAULT ''",
+                "parent_requirement_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "recommended_test_type": "TEXT NOT NULL DEFAULT ''",
+                "alternative_test_types_json": "TEXT NOT NULL DEFAULT '[]'",
+                "test_type_confidence": "REAL NOT NULL DEFAULT 0",
+                "test_type_reasons_json": "TEXT NOT NULL DEFAULT '[]'",
+                "source_chunk_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "source_documents_json": "TEXT NOT NULL DEFAULT '[]'",
+                "source_evidence_json": "TEXT NOT NULL DEFAULT '[]'",
+                "need_human_confirm": "INTEGER NOT NULL DEFAULT 0",
+                "missing_information_json": "TEXT NOT NULL DEFAULT '[]'",
+                "machine_extraction_json": "TEXT NOT NULL DEFAULT '{}'",
+                "review_changes_json": "TEXT NOT NULL DEFAULT '{}'",
+                "retained": "INTEGER NOT NULL DEFAULT 1",
+            },
+        )
         _ensure_columns(
             cursor,
             "project_chunks",

@@ -16,8 +16,11 @@ class ApplicationContainer:
         self.settings = settings
 
     def build_ui_service(
-        self, project_db: Path, library_db: Optional[Path] = None
+        self,
+        project_db: Path,
+        library_db: Optional[Path] = None,
+        settings: Optional[Settings] = None,
     ) -> UIApplicationService:
         manager = ProjectManager(project_db)
         library = CaseLibraryManager(library_db) if library_db else None
-        return UIApplicationService(manager, library, self.settings)
+        return UIApplicationService(manager, library, settings or self.settings)

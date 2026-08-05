@@ -246,9 +246,10 @@ class ProjectManager:
         model_name: str = "",
         prompt_snapshot: str = "",
         status: str = "created",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         return self.generations.create_run(
-            project_id, run_type, model_name, prompt_snapshot, status
+            project_id, run_type, model_name, prompt_snapshot, status, metadata
         )
 
     def save_generated_case(

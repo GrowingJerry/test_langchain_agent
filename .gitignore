@@ -21,6 +21,7 @@ Thumbs.db
 
 # Runtime outputs and local databases
 outputs/
+project/data/
 project/outputs/
 *.db
 *.sqlite
@@ -37,3 +38,4 @@ project/outputs/
 .ruff_cache/
 .coverage
 htmlcov/
+wheelhouse/

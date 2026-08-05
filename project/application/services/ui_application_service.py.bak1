@@ -204,22 +204,8 @@ class UIApplicationService:
         return self.uploads.save_history(project_id, filename, content)
 
     def process_visual_upload(
-        self,
-        project_id: str,
-        filename: str,
-        content: bytes,
-        requirement_id: str = "",
+        self, project_id: str, filename: str, content: bytes
     ) -> Dict[str, Any]:
-        requirement_id = str(requirement_id or "").strip()
-        requirement = None
-        if requirement_id:
-            requirement = self.manager.get_requirement(project_id, requirement_id)
-            if not requirement:
-                return {
-                    "ok": False,
-                    "asset_id": "",
-                    "error": f"关联需求不存在或不属于当前项目：{requirement_id}",
-                }
         target = self.uploads.save_image(project_id, filename, content)
         asset_id = self.manager.save_project_asset(
             project_id,
@@ -241,8 +227,6 @@ class UIApplicationService:
                     "asset_type": "image",
                     "file_path": str(target),
                     "source_document": target.name,
-                    "requirement_id": requirement_id,
-                    "requirement_title": (requirement or {}).get("title", ""),
                 }
             ),
             image_paths=[target],
@@ -272,8 +256,6 @@ class UIApplicationService:
         data.update({
             "project_id": project_id,
             "asset_id": asset_id,
-            "requirement_id": requirement_id,
-            "related_requirement_ids": [requirement_id] if requirement_id else [],
             # Machine-extracted visual evidence must be reviewed before it can
             # be treated as confirmed project evidence, regardless of the
             # model's self-reported confidence.

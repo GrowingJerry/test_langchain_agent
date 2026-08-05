@@ -75,18 +75,9 @@ class FallbackGenerationService:
             )
         )
         trigger = str(scenario.get("trigger_event") or objective)
-        steps = [
-            f"确认{test_object}已按当前项目文档部署，并核对前置条件和初始状态。",
-            f"准备项目资料明确给出的测试数据并执行“{trigger}”。",
-            f"观察并记录“{scenario_name}”中的界面、接口返回、日志和状态变化。",
-            "将实际结果与当前需求及来源片段逐项比对并记录结论。",
-        ]
-        expected = [
-            "测试对象、版本和初始状态满足当前项目文档约定。",
-            "系统进入当前需求规定的处理流程；未明确的输入数据需人工确认。",
-            "形成可追溯的实际结果、接口响应、日志或状态记录。",
-            "实际结果符合当前需求；资料未给出阈值时按需求文档规定值判定。",
-        ]
+        steps, expected = self._test_points_for_type(
+            case_type, test_object, trigger, scenario_name
+        )
         return TestCase(
             case_id=f"TC-RULE-{uuid4().hex[:12]}",
             title=f"{case_type}-{requirement_id}-{scenario_name}-{sequence}",
@@ -106,4 +97,71 @@ class FallbackGenerationService:
             need_human_confirm=bool(missing),
             missing_information=missing,
             generation_mode="rule_fallback",
+        )
+
+    @staticmethod
+    def _test_points_for_type(
+        case_type: str, test_object: str, trigger: str, scenario_name: str
+    ) -> tuple[List[str], List[str]]:
+        common_first = f"确认{test_object}已按当前项目文档部署，并核对前置条件、版本和初始状态。"
+        templates = {
+            "性能测试": (
+                [
+                    common_first,
+                    f"按需求准备负载、并发用户、数据规模和监控工具，执行“{trigger}”。",
+                    "记录响应时间、吞吐量、并发容量、资源占用和持续运行指标。",
+                    "对照需求中的性能阈值、负载条件和验收标准判定结果。",
+                ],
+                [
+                    "性能测试环境、数据规模和监控口径与需求一致。",
+                    "系统在指定负载下完成处理且不出现资源耗尽或异常中断。",
+                    "形成可追溯的性能指标记录。",
+                    "实际指标满足需求阈值；阈值缺失时标记需人工确认。",
+                ],
+            ),
+            "安全性测试": (
+                [
+                    common_first,
+                    "配置不同角色、权限、认证凭据和必要的加密/审计检查点。",
+                    f"执行“{trigger}”，覆盖授权访问、越权访问和敏感数据传输。",
+                    "检查认证结果、权限控制、加密状态、审计日志和异常告警。",
+                ],
+                [
+                    "安全配置和账号权限与需求一致。",
+                    "授权操作成功，未授权操作被拒绝且有明确提示或日志。",
+                    "敏感数据保护、审计记录和告警行为满足需求。",
+                    "未发现权限绕过、明文传输或审计缺失。",
+                ],
+            ),
+            "接口测试": (
+                [
+                    common_first,
+                    "准备接口地址、协议版本、报文样例、字段边界值和异常报文。",
+                    f"调用“{trigger}”相关接口并记录请求、响应、状态码和日志。",
+                    "校验报文格式、必填字段、数据类型、错误码和兼容处理。",
+                ],
+                [
+                    "接口环境、协议和数据格式与需求一致。",
+                    "合法报文得到正确响应，异常报文得到规范错误处理。",
+                    "字段映射、状态码、日志和返回数据满足接口约束。",
+                    "接口结果可由请求/响应和日志追溯。",
+                ],
+            ),
+        }
+        return templates.get(
+            case_type,
+            (
+                [
+                    common_first,
+                    f"准备项目资料明确给出的测试数据并执行“{trigger}”。",
+                    f"观察并记录“{scenario_name}”中的界面、接口返回、日志和状态变化。",
+                    "将实际结果与当前需求、验收标准和来源片段逐项比对。",
+                ],
+                [
+                    "测试对象、版本和初始状态满足当前项目文档约定。",
+                    "系统进入当前需求规定的处理流程；未明确的输入数据需人工确认。",
+                    "形成可追溯的实际结果、接口响应、日志或状态记录。",
+                    "实际结果符合当前需求；资料未给出阈值时按需求文档规定值判定。",
+                ],
+            ),
         )

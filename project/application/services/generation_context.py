@@ -15,13 +15,31 @@ class ContextBuilder:
         self.manager = manager
         self.case_library = case_library
 
+    @staticmethod
+    def _evidence_requirement_ids(evidence: Dict[str, Any]) -> set[str]:
+        """Normalize requirement bindings stored inside visual evidence JSON."""
+        ids: set[str] = set()
+        for key in ("requirement_id", "related_requirement_id"):
+            value = str(evidence.get(key) or "").strip()
+            if value:
+                ids.add(value)
+        related = evidence.get("related_requirement_ids") or []
+        if isinstance(related, str):
+            related = [related]
+        if isinstance(related, list):
+            ids.update(str(item).strip() for item in related if str(item).strip())
+        return ids
+
     def _visual_evidence_rows(
-        self, project_id: str, limit: int = 20
+        self, project_id: str, requirement_id: str = "", limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """Return project-scoped visual evidence as auxiliary context only."""
+        """Return requirement-bound visual evidence as auxiliary context only."""
         rows = []
-        for item in self.manager.list_visual_evidence_by_project(project_id)[:limit]:
+        for item in self.manager.list_visual_evidence_by_project(project_id):
             evidence = item.get("evidence") or {}
+            bound_requirement_ids = self._evidence_requirement_ids(evidence)
+            if requirement_id and requirement_id not in bound_requirement_ids:
+                continue
             need_confirm = bool(
                 evidence.get("need_human_confirm", item.get("need_human_confirm", True))
             )
@@ -29,6 +47,8 @@ class ContextBuilder:
                 {
                     "evidence_id": item.get("evidence_id", ""),
                     "asset_id": item.get("asset_id", ""),
+                    "requirement_id": evidence.get("requirement_id", ""),
+                    "related_requirement_ids": sorted(bound_requirement_ids),
                     "image_type": evidence.get("image_type")
                     or item.get("evidence_type", ""),
                     "visible_text": evidence.get("visible_text")
@@ -45,6 +65,8 @@ class ContextBuilder:
                     ),
                 }
             )
+            if len(rows) >= limit:
+                break
         return rows
 
     def build(
@@ -106,7 +128,7 @@ class ContextBuilder:
                 }
                 for item, score, reason in found
             ]
-        visual_rows = self._visual_evidence_rows(project_id)
+        visual_rows = self._visual_evidence_rows(project_id, requirement_id)
         missing = []
         if not profile:
             missing.append("项目画像")

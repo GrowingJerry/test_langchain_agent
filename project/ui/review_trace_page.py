@@ -1,4 +1,4 @@
-"""Generated-case review, editing, and traceability page."""
+﻿"""Generated-case review, editing, and traceability page."""
 
 import json
 import re
@@ -105,8 +105,16 @@ def _visual_evidence_summary_rows(
     return rows
 
 
-def render_review_trace_page(service, project_id, use_ollama_review: bool) -> None:
+def render_review_trace_page(service, project_id, config) -> None:
     st.header("结果审查与追溯")
+    if isinstance(config, dict):
+        use_ollama_review = bool(config.get("use_ollama_review", False))
+        use_ollama = bool(config.get("use_ollama", False))
+        model_name = str(config.get("model") or "")
+    else:
+        use_ollama_review = bool(config)
+        use_ollama = True
+        model_name = ""
     if not project_id:
         st.info("请先选择项目。")
         return
@@ -118,9 +126,23 @@ def render_review_trace_page(service, project_id, use_ollama_review: bool) -> No
     if st.button("执行规则审查", key=f"rule_review_{project_id}"):
         service.review_project(project_id, include_llm=False)
         st.success("规则审查完成。")
+    if isinstance(config, dict):
+        use_ollama_review = st.checkbox(
+            "启用 Ollama 审查",
+            value=use_ollama_review,
+            disabled=not use_ollama,
+            key=f"enable_ollama_review_{project_id}",
+        )
+        config["use_ollama_review"] = bool(use_ollama_review)
+    if not use_ollama:
+        st.caption("Ollama 审查不可用：系统设置中未启用 Ollama。")
+    elif not use_ollama_review:
+        st.caption("Ollama 审查未启用：勾选上方“启用 Ollama 审查”后即可执行。")
+    elif model_name:
+        st.caption(f"Ollama 审查已启用，当前模型：{model_name}")
     if st.button(
         "执行 Ollama 审查",
-        disabled=not use_ollama_review,
+        disabled=(not use_ollama or not use_ollama_review),
         key=f"ollama_review_{project_id}",
     ):
         try:

@@ -1,12 +1,12 @@
 """Requirement domain schemas."""
 
-from typing import List
+from typing import Any, List
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class Requirement(BaseModel):
-    """Canonical project requirement with traceability."""
+    """Canonical project requirement with structure and traceability."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -14,8 +14,30 @@ class Requirement(BaseModel):
     title: str
     description: str
     category: str = "功能需求"
+    requirement_type: str = "functional"
+    section_number: str = ""
+    section_path: List[str] = Field(default_factory=list)
+    test_object: str = ""
+    actors: List[str] = Field(default_factory=list)
+    preconditions: List[str] = Field(default_factory=list)
+    inputs: List[str] = Field(default_factory=list)
+    processing_rules: List[str] = Field(default_factory=list)
+    outputs: List[str] = Field(default_factory=list)
+    exception_rules: List[str] = Field(default_factory=list)
+    performance_constraints: List[str] = Field(default_factory=list)
+    interface_constraints: List[str] = Field(default_factory=list)
+    security_constraints: List[str] = Field(default_factory=list)
+    acceptance_criteria: List[str] = Field(default_factory=list)
+    priority: str = ""
+    verification_method: str = ""
+    parent_requirement_ids: List[str] = Field(default_factory=list)
+    recommended_test_type: str = ""
+    alternative_test_types: List[str] = Field(default_factory=list)
+    test_type_confidence: float = 0.0
+    test_type_reasons: List[str] = Field(default_factory=list)
     source_chunk_ids: List[str] = Field(default_factory=list)
     source_documents: List[str] = Field(default_factory=list)
+    source_evidence: List[dict[str, Any]] = Field(default_factory=list)
     need_human_confirm: bool = False
     missing_information: List[str] = Field(default_factory=list)
 

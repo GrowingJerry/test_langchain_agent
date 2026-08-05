@@ -90,11 +90,14 @@ class GenerationRepository(BaseRepository):
         model_name: str = "",
         prompt_snapshot: str = "",
         status: str = "created",
+        metadata: Dict[str, Any] | None = None,
     ) -> str:
         run_id = new_id("RUN")
         with self.connections.transaction() as conn:
             conn.execute(
-                "INSERT INTO generation_runs VALUES(?,?,?,?,?,?,?)",
+                """INSERT INTO generation_runs(
+                run_id,project_id,run_type,status,model_name,prompt_snapshot,created_at,metadata_json
+                ) VALUES(?,?,?,?,?,?,?,?)""",
                 (
                     run_id,
                     project_id,
@@ -103,6 +106,7 @@ class GenerationRepository(BaseRepository):
                     model_name,
                     prompt_snapshot,
                     now_iso(),
+                    dumps_json(metadata or {}),
                 ),
             )
         return run_id

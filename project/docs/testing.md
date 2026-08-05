@@ -37,3 +37,22 @@ python scripts/evaluate_scenario_pipeline.py
 ## 测试数据纪律
 
 数据库测试只能使用 pytest 临时目录。不得指向正式 `outputs/sqlite`；不得为通过测试删除断言、扩大异常捕获或跳过失败用例。
+# 需求解析验收测试
+
+需求解析相关测试必须覆盖结构化块、表格行、原始编号保留、模板过滤、测试类型推荐、
+人工覆盖状态和生成追溯。不要只断言“数量大于 0”；应检查具体需求编号、章节路径、
+结构化字段、推荐类型和来源证据。
+
+推荐运行：
+
+```powershell
+cd project
+python -m compileall -q .
+pytest tests/unit/test_structured_requirement_extraction.py `
+       tests/unit/test_test_type_recommendation.py `
+       tests/integration/test_requirement_generation_e2e_acceptance.py `
+       tests/integration/test_generation_service.py
+```
+
+端到端验收应覆盖：上传或登记样本文档、结构化抽取、质量报告、人工审核保存、推荐测试类型默认值、
+人工修改不被 rerun 覆盖、按人工最终类型生成用例、保存追溯并导出需求-用例矩阵。

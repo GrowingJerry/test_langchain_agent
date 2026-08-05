@@ -83,6 +83,8 @@ class VisualEvidence(BaseModel):
     evidence_id: str = ""
     project_id: str = ""
     asset_id: str = ""
+    requirement_id: str = ""
+    related_requirement_ids: List[str] = Field(default_factory=list)
     image_type: str = ""
     main_objects: List[str] = Field(default_factory=list)
     visible_text: List[str] = Field(default_factory=list)

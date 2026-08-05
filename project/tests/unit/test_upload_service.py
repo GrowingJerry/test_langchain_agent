@@ -73,3 +73,21 @@ def test_large_document_is_queued_without_synchronous_parse(
     finally:
         jobs.close()
     assert row["status"] == "pending"
+
+
+def test_legacy_doc_upload_is_allowed_with_text_fallback(
+    upload_service: tuple[UploadService, str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, project_id, _ = upload_service
+
+    class Parsed:
+        text = "REQ-FUNC-001 系统应支持查询。"
+
+    monkeypatch.setattr(
+        "infrastructure.documents.ingestor.read_word_document",
+        lambda path: Parsed(),
+    )
+    result = service.ingest_document(project_id, "legacy.doc", b"doc-bytes")
+    assert result["chunk_count"] == 1
+    assert "legacy .doc" in result["parse_report"]["warnings"][0]
