@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -83,7 +83,11 @@ class TestCaseAgent:
             ),
         ]
 
-    def generate(self, request: TestCaseAgentRequest) -> GeneratedCaseBundle:
+    def generate(
+        self,
+        request: TestCaseAgentRequest,
+        progress_callback: Callable[[dict[str, str]], None] | None = None,
+    ) -> GeneratedCaseBundle:
         """Run one finite Agent invocation; callers own deterministic fallback behavior."""
         self.runtime.reset_observations()
         prompt = build_generation_request_prompt(
@@ -92,6 +96,7 @@ class TestCaseAgent:
             request.case_type,
             request.additional_instructions,
             request.scenario_ids,
+            request.auto_case_count,
         )
         prefetched = self._prefetch_required_context(request)
         if prefetched:
@@ -101,9 +106,8 @@ class TestCaseAgent:
                 + json.dumps(prefetched, ensure_ascii=False, default=str)[:24000]
             )
         try:
-            state = self.graph.invoke(
-                {"messages": [{"role": "user", "content": prompt}]},
-                config={
+            graph_input = {"messages": [{"role": "user", "content": prompt}]}
+            graph_config = {
                     # LangGraph counts model and tool supersteps separately. The
                     # middleware remains the authoritative finite call budget.
                     "recursion_limit": (
@@ -111,8 +115,11 @@ class TestCaseAgent:
                         + self.runtime.settings.agent_max_tool_calls
                         + 5
                     )
-                },
-            )
+                }
+            if progress_callback is None:
+                state = self.graph.invoke(graph_input, config=graph_config)
+            else:
+                state = self._stream_graph(graph_input, graph_config, progress_callback)
         except (ModelCallLimitExceededError, ToolCallLimitExceededError) as exc:
             raise AgentCallLimitError(
                 f"Test-case Agent call limit exceeded: {exc}"
@@ -158,6 +165,34 @@ class TestCaseAgent:
         ):
             bundle = self._repair_structured_bundle(bundle, request)
         return self._apply_observed_provenance(bundle, request)
+
+    def _stream_graph(
+        self,
+        graph_input: dict[str, Any],
+        graph_config: dict[str, Any],
+        callback: Callable[[dict[str, str]], None],
+    ) -> dict[str, Any]:
+        """Consume LangGraph token/update streams and retain the final structured state."""
+        state: dict[str, Any] = {}
+        for item in self.graph.stream(
+            graph_input, config=graph_config, stream_mode=["messages", "updates"]
+        ):
+            mode, data = item if isinstance(item, tuple) and len(item) == 2 else ("updates", item)
+            if mode == "messages":
+                message = data[0] if isinstance(data, tuple) else data
+                content = getattr(message, "content", "")
+                if isinstance(content, str) and content:
+                    callback({"kind": "token", "content": content})
+                reasoning = (getattr(message, "additional_kwargs", {}) or {}).get("reasoning_content")
+                if reasoning:
+                    callback({"kind": "reasoning", "content": str(reasoning)})
+                continue
+            if isinstance(data, dict):
+                for node_update in data.values():
+                    if isinstance(node_update, dict):
+                        state.update(node_update)
+                callback({"kind": "status", "content": "模型正在整理结构化测试用例…"})
+        return state
 
     def _prefetch_required_context(
         self, request: TestCaseAgentRequest

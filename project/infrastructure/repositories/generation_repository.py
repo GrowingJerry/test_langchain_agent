@@ -111,6 +111,24 @@ class GenerationRepository(BaseRepository):
             )
         return run_id
 
+    def completed_batch_requirements(
+        self, project_id: str, batch_id: str
+    ) -> List[str]:
+        """Return durable per-requirement checkpoints for a resumable batch."""
+        with self.connections.connection() as conn:
+            rows = conn.execute(
+                """SELECT metadata_json FROM generation_runs
+                WHERE project_id=? AND run_type='requirement_batch_checkpoint'
+                AND status='completed'""",
+                (project_id,),
+            ).fetchall()
+        completed: List[str] = []
+        for row in rows:
+            metadata = loads_json(row["metadata_json"], {})
+            if metadata.get("batch_id") == batch_id and metadata.get("requirement_id"):
+                completed.append(str(metadata["requirement_id"]))
+        return list(dict.fromkeys(completed))
+
     def save_case(
         self,
         project_id: str,

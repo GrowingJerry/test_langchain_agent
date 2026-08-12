@@ -12,7 +12,7 @@ from application.services.test_type_recommendation import (
     apply_manual_case_type,
     sync_case_type_state,
 )
-from application.services.ui_state import begin_once, fail_once, finish_once, request_fingerprint
+from application.services.ui_state import request_fingerprint
 from domain.rules.test_types import LABELS
 
 TEST_TYPES = ["功能测试", "性能测试", "接口测试", "异常测试", "安全性测试", "可靠性测试"]
@@ -368,14 +368,30 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         return
     st.subheader("需求抽取预览")
     st.dataframe(_requirement_preview_rows(requirements), hide_index=True, use_container_width=True)
-    requirement = st.selectbox(
-        "选择需求", requirements,
-        format_func=lambda row: f"{row['requirement_id']} · {row.get('title', '')}",
-        key=f"selected_requirement_{project_id}",
+    select_all = st.checkbox(
+        "全选全部需求", key=f"select_all_requirements_{project_id}",
+        help="批量生成仍会逐条需求调用模型，并在每条需求完成后保存和记录断点。",
     )
+    requirement_by_id = {str(row["requirement_id"]): row for row in requirements}
+    requirement_ids = list(requirement_by_id)
+    if select_all:
+        selected_ids = requirement_ids
+        st.caption(f"已选择全部 {len(selected_ids)} 条需求。")
+    else:
+        selected_ids = st.multiselect(
+            "选择一个或多个需求",
+            requirement_ids,
+            default=requirement_ids[:1],
+            format_func=lambda item: f"{item} · {requirement_by_id[item].get('title', '')}",
+            key=f"selected_requirements_{project_id}",
+        )
+    if not selected_ids:
+        st.warning("请至少选择一条需求。")
+        return
+    selected_requirements = [requirement_by_id[item] for item in selected_ids]
     recommendation = sync_case_type_state(
         st.session_state,
-        [requirement],
+        selected_requirements,
         current_default=TEST_TYPES[0],
     )
     distribution = recommendation.get("type_distribution") or {}
@@ -405,7 +421,22 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         key=case_type_key,
     )
     recommendation = apply_manual_case_type(st.session_state, case_type)
-    count = right.number_input("用例数量", 1, 20, int(recommendation.get("selected_case_count") or 1), key=f"requirement_count_{project_id}")
+    count_mode = right.radio(
+        "用例数量方式", ["模型自动决定", "人工指定"], horizontal=True,
+        key=f"requirement_count_mode_{project_id}",
+        help="自动模式会让模型按需求复杂度覆盖正向和反向/异常路径，且避免重复。",
+    )
+    auto_case_count = count_mode == "模型自动决定"
+    if auto_case_count:
+        count = right.number_input(
+            "自动生成上限", 2, 100, 20, key=f"requirement_auto_count_limit_{project_id}",
+            help="这是安全上限，不是必须生成的数量。",
+        )
+    else:
+        count = right.number_input(
+            "用例数量", 1, 100, int(recommendation.get("selected_case_count") or 1),
+            key=f"requirement_count_{project_id}",
+        )
     recommendation["selected_case_count"] = int(count)
     if recommendation.get("case_type_manually_overridden"):
         st.warning(
@@ -414,10 +445,10 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         )
     st.info(
         "生成摘要："
-        f"需求 {requirement['requirement_id']}；"
+        f"已选需求 {len(selected_ids)} 条；"
         f"系统推荐 {recommendation.get('recommended_case_type') or '未确定'}；"
         f"最终类型 {recommendation['selected_case_type']}；"
-        f"用例数量 {int(count)}。"
+        + (f"用例数量由模型决定（最多 {int(count)} 条）。" if auto_case_count else f"用例数量 {int(count)}。")
     )
     mode = _execution_mode(config, f"requirement_exec_{project_id}")
     use_kb = st.checkbox("使用当前项目知识库", True, key=f"requirement_kb_{project_id}")
@@ -425,29 +456,74 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         "使用历史用例方法参考", bool(config["use_library"]),
         disabled=case_library is None, key=f"requirement_history_{project_id}",
     )
+    force_regenerate = st.checkbox(
+        "重新生成本批次中已完成的需求",
+        value=False,
+        key=f"force_requirement_batch_{project_id}",
+        help="默认关闭以支持断点续跑；打开后会忽略已有完成断点。",
+    )
+    manual_note = st.text_area(
+        "人工备注要求（可选）",
+        key=f"requirement_manual_note_{project_id}",
+        placeholder="例如：重点覆盖断网恢复；禁止使用未在需求中出现的阈值。",
+        help="备注会显示在生成上下文预览中，并作为本次生成的补充约束传给模型。",
+    )
     preview_col, generate_col = st.columns(2)
     preview_state_key = f"generation_preview_context_{project_id}"
     if preview_col.button("预览生成上下文", key=f"preview_button_{project_id}"):
-        st.session_state[preview_state_key] = service.preview_generation(
-            project_id, requirement["requirement_id"], recommendation["selected_case_type"],
-            int(config["top_k"]), use_kb, history,
-        )
+        preview_context = {
+            requirement_id: service.preview_generation(
+                project_id, requirement_id, recommendation["selected_case_type"],
+                int(config["top_k"]), use_kb, history,
+            )
+            for requirement_id in selected_ids
+        }
+        st.session_state[preview_state_key] = {
+            "人工备注要求": manual_note.strip() or "无",
+            "项目生成上下文": preview_context,
+        }
     if generate_col.button("按需求生成测试用例", type="primary", key=f"generate_{project_id}"):
         request_data = {
-            "project_id": project_id, "requirement_id": requirement["requirement_id"],
+            "project_id": project_id, "requirement_ids": selected_ids,
             "case_type": case_type, "count": int(count), "mode": mode,
+            "auto_case_count": auto_case_count, "manual_note": manual_note.strip(),
         }
         fingerprint = request_fingerprint(request_data)
-        guard_key = f"generation:{project_id}:requirement"
-        if not begin_once(st.session_state, guard_key, fingerprint):
-            st.info("相同请求已完成或正在执行，未重复生成。")
-        else:
-            try:
-                generated = service.generate(GenerationRequest(
+        batch_id = f"REQ-BATCH-{fingerprint[:20]}"
+        try:
+            stream_area = st.empty()
+            stream_text = {"reasoning": "", "token": ""}
+            progress_bar = st.progress(0.0, text=f"准备批量生成，共 {len(selected_ids)} 条需求")
+
+            def show_stream(event: dict[str, str]) -> None:
+                kind = event.get("kind", "status")
+                content = event.get("content", "")
+                index = int(event.get("index") or 1)
+                total = int(event.get("total") or len(selected_ids))
+                requirement_id = event.get("requirement_id", "")
+                progress_bar.progress(
+                    min((index - 1) / max(total, 1), 0.99),
+                    text=f"[{index}/{total}] {requirement_id}：{content[:80]}",
+                )
+                if kind in stream_text:
+                    stream_text[kind] += content
+                with stream_area.container():
+                    with st.expander("模型生成过程（完成后自动收起）", expanded=True):
+                        if stream_text["reasoning"]:
+                            st.caption("思考过程")
+                            st.code(stream_text["reasoning"][-6000:], language=None)
+                        if stream_text["token"]:
+                            st.caption("正在输出")
+                            st.code(stream_text["token"][-6000:], language=None)
+                        elif content:
+                            st.write(content)
+
+            batch_result = service.generate_requirement_batch(GenerationRequest(
                     project_id=project_id,
-                    requirement_ids=[requirement["requirement_id"]],
+                    requirement_ids=selected_ids,
                     case_type=recommendation["selected_case_type"],
                     case_count=int(count),
+                    auto_case_count=auto_case_count,
                     requested_mode=mode,
                     use_project_kb=use_kb,
                     use_history=history,
@@ -456,13 +532,24 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
                     test_type_overridden=bool(recommendation.get("case_type_manually_overridden")),
                     test_type_confidence=float(recommendation.get("recommendation_confidence") or 0),
                     test_type_reasons=list(recommendation.get("recommendation_reasons") or []),
-                ))
-                result = generated.model_dump(mode="json")
-                finish_once(st.session_state, guard_key, fingerprint, result)
-                st.session_state[f"requirement_result_{project_id}"] = result
-            except Exception as exc:
-                fail_once(st.session_state, guard_key)
-                st.error(f"生成失败：{type(exc).__name__}: {exc}")
+                    additional_instructions=manual_note.strip(),
+            ), selected_ids, batch_id, progress_callback=show_stream, force=force_regenerate)
+            st.session_state[f"requirement_result_{project_id}"] = batch_result
+            progress_bar.progress(1.0, text="批量生成结束，已完成项均已持久化保存。")
+            stream_area.empty()
+            if batch_result["failed"]:
+                st.warning(
+                    f"批次结束：成功 {len(batch_result['completed'])}，"
+                    f"断点跳过 {len(batch_result['skipped'])}，失败 {len(batch_result['failed'])}。"
+                )
+                st.json(batch_result["failed"])
+            else:
+                st.success(
+                    f"批次完成：新生成 {len(batch_result['completed'])} 条需求，"
+                    f"断点跳过 {len(batch_result['skipped'])} 条需求。"
+                )
+        except Exception as exc:
+            st.error(f"批量生成启动失败：{type(exc).__name__}: {exc}")
     if st.session_state.get(preview_state_key):
         with st.expander("生成上下文预览"):
             st.json(st.session_state[preview_state_key])

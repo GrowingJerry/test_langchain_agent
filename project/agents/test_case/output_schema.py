@@ -15,7 +15,8 @@ class TestCaseAgentRequest(BaseModel):
 
     requirement_ids: List[str] = Field(default_factory=list)
     scenario_ids: List[str] = Field(default_factory=list)
-    case_count: int = Field(default=1, ge=1, le=20)
+    case_count: int = Field(default=1, ge=1, le=100)
+    auto_case_count: bool = False
     case_type: str = "功能测试"
     additional_instructions: str = ""
 

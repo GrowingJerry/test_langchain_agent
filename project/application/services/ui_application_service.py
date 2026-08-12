@@ -384,8 +384,86 @@ class UIApplicationService:
             persist=False,
         )
 
-    def generate(self, request: GenerationRequest) -> GenerationResult:
-        return self.generation.generate_test_cases(request)
+    def generate(
+        self, request: GenerationRequest, progress_callback: Any = None
+    ) -> GenerationResult:
+        return self.generation.generate_test_cases(
+            request, progress_callback=progress_callback
+        )
+
+    def generate_requirement_batch(
+        self,
+        base_request: GenerationRequest,
+        requirement_ids: List[str],
+        batch_id: str,
+        progress_callback: Any = None,
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """Generate requirements sequentially and checkpoint every completed item."""
+        ordered_ids = list(dict.fromkeys(str(item) for item in requirement_ids if item))
+        completed = set(
+            self.manager.completed_batch_requirements(base_request.project_id, batch_id)
+        )
+        summary: Dict[str, Any] = {
+            "batch_id": batch_id,
+            "total": len(ordered_ids),
+            "completed": [],
+            "skipped": [],
+            "failed": [],
+            "cases": [],
+        }
+        for index, requirement_id in enumerate(ordered_ids, 1):
+            if requirement_id in completed and not force:
+                summary["skipped"].append(requirement_id)
+                if progress_callback:
+                    progress_callback({
+                        "kind": "batch",
+                        "content": f"[{index}/{len(ordered_ids)}] {requirement_id} 已完成，断点续跑跳过。",
+                        "requirement_id": requirement_id,
+                        "index": index,
+                        "total": len(ordered_ids),
+                    })
+                continue
+            request = base_request.model_copy(update={
+                "requirement_ids": [requirement_id],
+                "scenario_ids": [],
+                "batch_id": batch_id,
+            })
+
+            def relay(event: Dict[str, Any]) -> None:
+                if progress_callback:
+                    progress_callback({
+                        **event,
+                        "requirement_id": requirement_id,
+                        "index": index,
+                        "total": len(ordered_ids),
+                    })
+
+            try:
+                relay({"kind": "batch", "content": f"开始生成 {requirement_id}"})
+                result = self.generate(request, progress_callback=relay)
+                dumped = result.model_dump(mode="json")
+                summary["cases"].extend(dumped.get("cases") or [])
+                self.manager.create_generation_run(
+                    base_request.project_id,
+                    "requirement_batch_checkpoint",
+                    status="completed",
+                    metadata={
+                        "batch_id": batch_id,
+                        "requirement_id": requirement_id,
+                        "generation_run_id": result.generation_run_id,
+                        "case_count": len(result.cases),
+                    },
+                )
+                summary["completed"].append(requirement_id)
+                relay({"kind": "batch", "content": f"{requirement_id} 已生成并保存。"})
+            except Exception as exc:
+                summary["failed"].append({
+                    "requirement_id": requirement_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                relay({"kind": "error", "content": summary["failed"][-1]["error"]})
+        return summary
 
     def compile_scenario(
         self, project_id: str, intent: Dict[str, Any], progress_callback: Any = None

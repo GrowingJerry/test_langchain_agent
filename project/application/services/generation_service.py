@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from typing import Any, Callable, Dict, List, Literal, Optional
 
@@ -42,7 +43,8 @@ class GenerationRequest(BaseModel):
     requirement_ids: List[str] = Field(default_factory=list)
     scenario_ids: List[str] = Field(default_factory=list)
     case_type: str = "功能测试"
-    case_count: int = Field(default=1, ge=1, le=20)
+    case_count: int = Field(default=1, ge=1, le=100)
+    auto_case_count: bool = False
     requested_mode: Literal["auto", "agent", "rule", "manual"] = "auto"
     use_project_kb: bool = True
     use_history: bool = True
@@ -55,6 +57,7 @@ class GenerationRequest(BaseModel):
     test_type_overridden: bool = False
     test_type_confidence: float = 0.0
     test_type_reasons: List[str] = Field(default_factory=list)
+    batch_id: str = ""
 
     @model_validator(mode="after")
     def _validate_manual_mode(self) -> "GenerationRequest":
@@ -64,6 +67,8 @@ class GenerationRequest(BaseModel):
             raise ValueError("manual_cases are only accepted in manual mode")
         if not self.requirement_ids and not self.scenario_ids:
             raise ValueError("requirement_ids or scenario_ids is required")
+        if self.auto_case_count and self.case_count < 2:
+            raise ValueError("auto case count requires a limit of at least 2")
         return self
 
 
@@ -122,9 +127,14 @@ class GenerationService:
         self.fallback_service = fallback_service or FallbackGenerationService()
         self.context_builder = ContextBuilder(manager, case_library)
 
-    def generate_test_cases(self, request: GenerationRequest) -> GenerationResult:
+    def generate_test_cases(
+        self,
+        request: GenerationRequest,
+        progress_callback: Callable[[dict[str, str]], None] | None = None,
+    ) -> GenerationResult:
         """Validate, generate, score, persist, and return one explicit-mode result."""
         self._validate_scope(request)
+        self._emit(progress_callback, "status", "正在读取需求、场景和项目知识…")
         contexts = self._build_contexts(request)
         mode: GenerationMode
         fallback_reason = ""
@@ -154,14 +164,20 @@ class GenerationService:
                         case_library=self.case_library if request.use_history else None,
                         settings=self.settings,
                     )
-                    bundle = self.agent_builder(runtime).generate(
-                        TestCaseAgentRequest(
+                    agent = self.agent_builder(runtime)
+                    agent_request = TestCaseAgentRequest(
                             requirement_ids=request.requirement_ids,
                             scenario_ids=request.scenario_ids,
                             case_count=request.case_count,
                             case_type=request.case_type,
                             additional_instructions=request.additional_instructions,
+                            auto_case_count=request.auto_case_count,
                         )
+                    generate_parameters = inspect.signature(agent.generate).parameters
+                    bundle = (
+                        agent.generate(agent_request, progress_callback=progress_callback)
+                        if "progress_callback" in generate_parameters
+                        else agent.generate(agent_request)
                     )
                     bundle = (
                         bundle
@@ -187,7 +203,7 @@ class GenerationService:
                     agent_failure = f"{type(exc).__name__}: {exc}"
                     try:
                         canonical_cases = self._generate_with_direct_model(
-                            contexts, request, agent_failure
+                            contexts, request, agent_failure, progress_callback
                         )
                         mode = "model_direct"
                         fallback_reason = ""
@@ -210,6 +226,7 @@ class GenerationService:
         if not canonical_cases:
             raise StructuredOutputError("Generation produced no test cases")
         metadata = self._generation_metadata(request)
+        self._emit(progress_callback, "status", "正在校验质量并保存测试用例…")
         run_id = self.manager.create_generation_run(
             project_id=request.project_id,
             run_type=f"test_case_{mode}",
@@ -344,13 +361,21 @@ class GenerationService:
             "test_type_confidence": float(request.test_type_confidence or 0),
             "test_type_reasons": list(request.test_type_reasons or []),
             "case_count": int(request.case_count),
+            "auto_case_count": bool(request.auto_case_count),
+            "batch_id": request.batch_id,
         }
+
+    @staticmethod
+    def _emit(callback: Callable[[dict[str, str]], None] | None, kind: str, content: str) -> None:
+        if callback is not None:
+            callback({"kind": kind, "content": content})
 
     def _generate_with_direct_model(
         self,
         contexts: List[Dict[str, Any]],
         request: GenerationRequest,
         agent_failure: str,
+        progress_callback: Callable[[dict[str, str]], None] | None = None,
     ) -> List[TestCase]:
         if self.direct_model_generator is not None:
             return self._prepare_model_direct_cases(
@@ -358,13 +383,32 @@ class GenerationService:
                 request,
             )
         payload = self._direct_model_payload(contexts, request, agent_failure)
+        payload["stream"] = bool(progress_callback)
         response = requests.post(
             f"{self.settings.ollama_base_url.rstrip('/')}/api/chat",
             json=payload,
             timeout=self.settings.ollama_timeout,
+            stream=bool(progress_callback),
         )
         response.raise_for_status()
-        data = response.json()
+        if progress_callback:
+            data: Dict[str, Any] = {}
+            content_parts: List[str] = []
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                event = json.loads(line)
+                part = str(((event.get("message") or {}).get("content")) or "")
+                thinking = str(((event.get("message") or {}).get("thinking")) or "")
+                if thinking:
+                    self._emit(progress_callback, "reasoning", thinking)
+                if part:
+                    content_parts.append(part)
+                    self._emit(progress_callback, "token", part)
+                data = event
+            data["message"] = {**(data.get("message") or {}), "content": "".join(content_parts)}
+        else:
+            data = response.json()
         content = str(((data.get("message") or {}).get("content")) or "").strip()
         parsed = json.loads(content)
         try:
@@ -599,6 +643,11 @@ class GenerationService:
             "scenario_validation_run_id": "",
             "warnings": [],
         }
+        quantity_rule = (
+            "- Decide the useful number of cases yourself and cover both positive and negative paths without duplicates.\n"
+            if request.auto_case_count
+            else "- Generate the requested number of cases.\n"
+        )
         prompt = (
             "你是当前项目的测试用例生成模型。LangChain Agent 工具链失败，但你仍必须只使用"
             "下面提供的项目上下文生成结构化 JSON。\n"
@@ -623,13 +672,16 @@ class GenerationService:
             f"Target requirement_ids: {request.requirement_ids}\n"
             f"Target scenario_ids: {request.scenario_ids}\n"
             f"Selected test type: {request.case_type}\n"
-            f"Case count: {request.case_count}\n\n"
+            f"Case count limit: {request.case_count}\n"
+            f"Automatic count: {request.auto_case_count}\n\n"
             "Return exactly one JSON object matching this schema. The top-level object "
             "must contain the key 'cases'. Do not output analysis keys such as user_profile, "
             "scenario_cards, test_objects, input_data_summary, thresholds, or any Chinese "
             "analysis headings at the top level.\n"
             "Rules:\n"
             "- cases length must be no more than Case count.\n"
+            + quantity_rule
+            +
             "- test_steps and expected_results must have the same length and align by index.\n"
             "- requirement_ids may only use Target requirement_ids.\n"
             "- source_chunk_ids may only use chunk_id values present in project_context.\n"

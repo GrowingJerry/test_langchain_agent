@@ -20,6 +20,7 @@ from infrastructure.exporters.project_documents import (
 from domain.exceptions import AgentExecutionError
 from domain.schemas.test_case import TestCase
 from application.services.generation_service import GenerationRequest, GenerationService
+from application.services.ui_application_service import UIApplicationService
 
 
 class Health:
@@ -43,6 +44,14 @@ class FakeAgent:
         if self.error is not None:
             raise self.error
         return self.result
+
+
+class StreamingFakeAgent(FakeAgent):
+    def generate(self, request, progress_callback=None) -> Any:
+        if progress_callback:
+            progress_callback({"kind": "reasoning", "content": "分析正反向路径"})
+            progress_callback({"kind": "token", "content": "正在生成"})
+        return super().generate(request)
 
 
 def direct_case_generator(chunk_id: str):
@@ -186,6 +195,66 @@ def test_agent_generation_persists_run_case_trace_and_exports(workspace) -> None
     assert rows["test_cases"][0]["case_name"] == "订单接收"
     assert export_project_excel(manager, project_id).is_file()
     assert export_project_word(manager, project_id).is_file()
+
+
+def test_auto_count_notes_and_stream_callback_reach_agent(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    bundle = GeneratedCaseBundle(cases=[canonical_case(chunk_id)])
+    events = []
+    service = GenerationService(
+        manager,
+        settings=enabled_settings(),
+        health_client=Health(),
+        agent_builder=lambda runtime: StreamingFakeAgent(bundle),
+    )
+    result = service.generate_test_cases(
+        request(
+            project_id,
+            case_count=20,
+            auto_case_count=True,
+            additional_instructions="重点覆盖断网恢复",
+        ),
+        progress_callback=events.append,
+    )
+    assert len(result.cases) == 1
+    assert {event["kind"] for event in events} >= {"status", "reasoning", "token"}
+    with manager.connections.connection() as conn:
+        run = conn.execute(
+            "SELECT prompt_snapshot,metadata_json FROM generation_runs WHERE run_id=?",
+            (result.generation_run_id,),
+        ).fetchone()
+    assert "重点覆盖断网恢复" in run["prompt_snapshot"]
+    assert '"auto_case_count":true' in run["metadata_json"]
+
+
+def test_requirement_batch_checkpoints_and_resumes_without_regeneration(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    ui = UIApplicationService.__new__(UIApplicationService)
+    ui.manager = manager
+    calls = []
+
+    def generate_one(request, progress_callback=None):
+        calls.append(request.requirement_ids[0])
+        return GenerationService(
+            manager,
+            settings=enabled_settings(),
+            health_client=Health(),
+            agent_builder=lambda runtime: FakeAgent(
+                GeneratedCaseBundle(cases=[canonical_case(
+                    chunk_id, case_id=f"TC-{len(calls)}"
+                )])
+            ),
+        ).generate_test_cases(request, progress_callback=progress_callback)
+
+    ui.generate = generate_one
+    base = request(project_id, scenario_ids=[], additional_instructions="统一批量备注")
+    first = ui.generate_requirement_batch(base, ["REQ-1"], "BATCH-1")
+    second = ui.generate_requirement_batch(base, ["REQ-1"], "BATCH-1")
+
+    assert first["completed"] == ["REQ-1"]
+    assert second["skipped"] == ["REQ-1"]
+    assert calls == ["REQ-1"]
+    assert manager.completed_batch_requirements(project_id, "BATCH-1") == ["REQ-1"]
 
 
 def test_agent_disabled_uses_recorded_rule_fallback(workspace) -> None:

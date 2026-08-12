@@ -34,11 +34,18 @@ def build_generation_request_prompt(
     case_type: str,
     additional_instructions: str,
     scenario_ids: list[str] | None = None,
+    auto_case_count: bool = False,
 ) -> str:
     """Build the bounded human request without embedding project facts."""
+    quantity_instruction = (
+        f"请根据需求复杂度自行决定用例数量（最多 {case_count} 条），同时覆盖正向和反向/异常路径；"
+        "不要为了凑数生成重复用例。"
+        if auto_case_count
+        else f"生成 {case_count} 条用例。"
+    )
     return (
         f"为需求 {requirement_ids}、已编译场景 {scenario_ids or []} "
-        f"生成最多 {case_count} 条{case_type}用例。\n"
+        f"生成{case_type}用例。{quantity_instruction}\n"
         f"补充约束：{additional_instructions or '无'}\n"
         "请优先读取已编译场景及校验结果，再按需检索需求、approved知识、"
         "项目文档、装备分配和测试方法；缺失信息必须明确列出。"

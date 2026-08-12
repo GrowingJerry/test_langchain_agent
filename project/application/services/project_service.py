@@ -252,6 +252,11 @@ class ProjectManager:
             project_id, run_type, model_name, prompt_snapshot, status, metadata
         )
 
+    def completed_batch_requirements(
+        self, project_id: str, batch_id: str
+    ) -> List[str]:
+        return self.generations.completed_batch_requirements(project_id, batch_id)
+
     def save_generated_case(
         self,
         project_id: str,

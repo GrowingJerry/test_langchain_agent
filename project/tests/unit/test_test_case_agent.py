@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage
 from agents.test_case.agent import TestCaseAgent
 from agents.test_case.context import AgentRuntimeContext
 from agents.test_case.output_schema import TestCaseAgentRequest
+from agents.test_case.prompts import build_generation_request_prompt
 from agents.test_case.tools import build_test_case_tools
 from config.settings import Settings
 from domain.exceptions import AgentCallLimitError, AgentExecutionError
@@ -412,3 +413,12 @@ def test_misaligned_step_result_tails_are_removed_without_model_facts() -> None:
     assert repaired.cases[0].expected_results == ["结果一"]
     assert repaired.cases[0].need_human_confirm is True
     assert "步骤/预期结果尾部已截断，需人工确认" in repaired.cases[0].missing_information
+
+
+def test_auto_count_prompt_covers_positive_negative_and_manual_note() -> None:
+    prompt = build_generation_request_prompt(
+        ["REQ-1"], 20, "功能测试", "重点覆盖断网恢复", auto_case_count=True
+    )
+    assert "自行决定用例数量" in prompt
+    assert "正向和反向/异常路径" in prompt
+    assert "重点覆盖断网恢复" in prompt
