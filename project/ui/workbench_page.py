@@ -70,16 +70,16 @@ def render_workbench_page(service, project_id: Optional[str]) -> None:
         st.info("下一步：进入“导出中心”生成项目级 Excel 或 Word 文档。")
     elif cases:
         st.success("当前状态：已生成场景化用例。")
-        st.info("下一步：进入“结果审查与追溯”查看评分、来源并人工确认。")
+        st.info("下一步：进入“用例审查”修改用例、检查覆盖与来源。")
     elif requirements and scenario_cards:
         st.info("当前状态：需求与场景卡片已准备完成。")
-        st.info("下一步：进入“智能生成”选择需求和测试类型，预览上下文并生成用例。")
+        st.info("下一步：进入“生成测试用例”，选择需求后批量生成。")
     elif requirements:
-        st.info("当前状态：已抽取需求。下一步请在“智能生成”抽取场景卡片。")
+        st.info("当前状态：已抽取需求。下一步进入“生成测试用例”；场景编译为可选高级流程。")
     elif docs:
         st.info(
-            "当前状态：已上传资料。下一步请进入“智能生成”抽取画像、需求和场景卡片。"
+            "当前状态：已上传资料。下一步进入“资料与需求”确认需求结构。"
         )
     else:
         st.warning("当前状态：未上传资料。")
-        st.info("下一步：进入“文档与知识库”上传、解析并入库当前项目资料。")
+        st.info("下一步：进入“资料与需求”上传并解析项目资料。")

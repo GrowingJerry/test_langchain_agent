@@ -581,6 +581,39 @@ class UIApplicationService:
                     (project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,
                      dumps_json({"section":item.source_section,"block_id":item.source_block_id,"source_text":item.source_text}),
                      dumps_json({"inputs":item.input_constraints,"processing":item.processing_rules,"expected":item.expected_behavior,"exceptions":item.exception_rules}),item.verification_scope,int(item.need_human_confirm)))
+        # The structured parser is an enhanced requirement extraction path, not a
+        # separate feature island.  Publish every leaf into the canonical project
+        # requirement store so the normal generation flow can use it immediately.
+        for node in nodes:
+            node_indicators = [item for item in indicators if item.function_id == node.identifier]
+            self.manager.upsert_requirement(project_id, {
+                "requirement_id": node.identifier,
+                "title": node.name,
+                "description": node.sections.get("功能描述", ""),
+                "category": "功能需求",
+                "requirement_type": "functional",
+                "section_number": node.section_number,
+                "section_path": list(node.hierarchy_path),
+                "inputs": [node.sections.get("输入", "")] if node.sections.get("输入") else [],
+                "processing_rules": [node.sections.get("处理", "")] if node.sections.get("处理") else [],
+                "outputs": [node.sections.get("输出", "")] if node.sections.get("输出") else [],
+                "source_document": node.source_document,
+                "source_documents": [node.source_document],
+                "source_chunk_id": node.source_block_id,
+                "source_chunk_ids": [node.source_block_id],
+                "source_evidence": [
+                    {
+                        "block_id": node.source_block_id,
+                        "section_path": list(node.hierarchy_path),
+                        "indicator_ids": [item.indicator_id for item in node_indicators],
+                        "text": node.sections.get("功能描述", ""),
+                    }
+                ],
+                "parent_requirement_ids": [node.parent_id] if node.parent_id else [],
+                "need_human_confirm": bool(node.need_human_confirm),
+                "missing_information": [],
+                "retained": True,
+            })
         return {"nodes":[x.model_dump(mode="json") for x in nodes],"indicators":[x.model_dump(mode="json") for x in indicators]}
 
     def analyze_offline_html(self, project_id: str, filename: str, content: bytes) -> Dict[str, Any]:

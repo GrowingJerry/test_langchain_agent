@@ -22,3 +22,24 @@ def test_site_package_and_version_actions_are_project_scoped(tmp_path):
     with pytest.raises(KeyError): repo.accept_version(p2,"TC-1",1)
     repo.accept_version(p1,"TC-1",1); rolled=repo.rollback(p1,"TC-1",1)
     assert rolled["version_no"]==2 and len(repo.list_case_versions(p1,"TC-1"))==2
+
+
+def test_csci_enhancement_publishes_to_normal_generation_requirements(tmp_path):
+    """Structured parsing must feed the same store used by requirement generation."""
+    from tests.fixtures.csci_demo.build_fixture import build
+
+    manager = ProjectManager(tmp_path / "workspace.db")
+    project_id = manager.create_project("CSCI统一流程")["project_id"]
+    service = UIApplicationService(manager, None, Settings(enable_ollama=False))
+    result = service.analyze_csci_docx(
+        project_id, build(tmp_path / "synthetic-requirements.docx")
+    )
+
+    requirement_ids = {
+        row["requirement_id"] for row in manager.list_requirements(project_id)
+    }
+    assert {node["identifier"] for node in result["nodes"]} <= requirement_ids
+    profile = manager.get_requirement(project_id, "GRXXPZ")
+    assert profile
+    assert profile["section_path"] == ["新闻门户", "个人中心", "个人信息配置"]
+    assert profile["inputs"] and profile["outputs"]

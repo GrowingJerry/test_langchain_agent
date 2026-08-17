@@ -8,6 +8,12 @@ from typing import Any, Optional
 import streamlit as st
 
 from workflows.learning.requirement_extractor import classify_requirement
+from ui.traceability_page import render_requirement_traceability_panel
+from ui.generation_page import (
+    _requirement_preview_rows,
+    _review_rows,
+    _rows_to_reviewed_dicts,
+)
 
 IMAGE_TYPES = ["png", "jpg", "jpeg", "webp"]
 
@@ -385,21 +391,104 @@ def _render_retrieval_debug(service: Any, project_id: str, top_k: int) -> None:
         st.warning("；".join(result["equipment_missing_information"]))
 
 
-def render_knowledge_page(
-    service: Any, project_id: Optional[str], case_library: Any, top_k: int
+def _render_requirement_review(
+    service: Any, project_id: str, use_ollama: bool = False
 ) -> None:
-    st.header("文档与知识库")
+    """Keep requirement extraction/review next to its source documents."""
+    st.subheader("抽取并确认可生成的需求")
+    st.caption("只有保存审核结果后，需求才会出现在下一步的生成页面中。")
+    structured_rows = service.traceability_rows(project_id).get("atomic_requirements") or []
+    profile_col, extract_col = st.columns(2)
+    if profile_col.button("更新项目画像", key=f"profile_in_knowledge_{project_id}"):
+        service.extract_profile(project_id, use_ollama=use_ollama)
+        st.success("项目画像已更新。")
+    if structured_rows:
+        extract_col.success(
+            f"已采用 CSCI 结构化抽取：{len(structured_rows)} 条原子需求"
+        )
+    elif extract_col.button(
+        "普通文档需求抽取",
+        type="primary",
+        help="仅在未使用 CSCI 结构化解析时使用。",
+        key=f"requirements_in_knowledge_{project_id}",
+    ):
+        st.session_state[f"requirement_extraction_preview_{project_id}"] = (
+            service.preview_requirement_extraction(project_id)
+        )
+    preview = st.session_state.get(f"requirement_extraction_preview_{project_id}")
+    if preview:
+        st.write("**抽取质量摘要**")
+        st.json(preview.get("report") or {})
+        machine_rows = list(preview.get("requirements") or [])
+        edited_rows = st.data_editor(
+            _review_rows(machine_rows),
+            hide_index=True,
+            use_container_width=True,
+            key=f"requirement_review_editor_{project_id}",
+        )
+        if st.button(
+            "保存审核后的需求清单",
+            type="primary",
+            key=f"save_reviewed_requirements_{project_id}",
+        ):
+            reviewed = _rows_to_reviewed_dicts(edited_rows, machine_rows)
+            service.save_reviewed_requirements(project_id, reviewed, machine_rows)
+            st.session_state.pop(f"requirement_extraction_preview_{project_id}", None)
+            st.success("需求已保存，可以进入“生成测试用例”。")
+            st.rerun()
+    requirements = service.list_requirements(project_id)
+    if requirements:
+        label = "结构化需求" if structured_rows else "当前已确认需求"
+        st.write(f"**{label}：{len(requirements)} 条**")
+        st.dataframe(
+            _requirement_preview_rows(requirements),
+            hide_index=True,
+            use_container_width=True,
+        )
+    else:
+        st.info("当前尚无已确认需求。")
+
+
+def render_knowledge_page(
+    service: Any,
+    project_id: Optional[str],
+    case_library: Any,
+    top_k: int,
+    use_ollama: bool = False,
+) -> None:
+    st.header("资料与需求")
     if not project_id:
         st.info("请先在项目工作台创建项目。")
         return
-    tabs = st.tabs(["项目文档", "装备数据", "场景学习", "知识审核", "检索调试"])
+    st.caption("按顺序完成资料上传、需求结构确认和可选的 HTML 证据补充。")
+    tabs = st.tabs(
+        [
+            "1. 资料上传",
+            "2. 结构与HTML（可选）",
+            "3. 需求审核",
+            "高级资料",
+            "知识审核",
+            "检索调试",
+        ]
+    )
     with tabs[0]:
         _render_project_documents(service, project_id, case_library)
     with tabs[1]:
-        _render_equipment_data(service, project_id)
+        render_requirement_traceability_panel(service, project_id)
     with tabs[2]:
-        _render_scenario_learning(service, project_id)
+        _render_requirement_review(service, project_id, use_ollama)
     with tabs[3]:
-        _render_knowledge_review(service, project_id)
+        advanced = st.radio(
+            "高级资料类型",
+            ["装备数据", "场景学习"],
+            horizontal=True,
+            key=f"advanced_knowledge_{project_id}",
+        )
+        if advanced == "装备数据":
+            _render_equipment_data(service, project_id)
+        else:
+            _render_scenario_learning(service, project_id)
     with tabs[4]:
+        _render_knowledge_review(service, project_id)
+    with tabs[5]:
         _render_retrieval_debug(service, project_id, top_k)

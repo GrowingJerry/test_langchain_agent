@@ -15,15 +15,13 @@ from ui.generation_page import render_generation_page
 from ui.review_trace_page import render_review_trace_page
 from ui.export_page import render_export_page
 from ui.settings_page import render_settings_page
-from ui.traceability_page import render_traceability_page
 
 
 PAGES = [
     "项目工作台",
-    "需求结构与HTML追踪",
-    "文档与知识库",
-    "智能生成",
-    "结果审查与追溯",
+    "资料与需求",
+    "生成测试用例",
+    "用例审查",
     "导出中心",
     "系统设置",
 ]
@@ -93,13 +91,17 @@ def main() -> None:
     st.title("项目级测试文档智能生成系统")
     if page == "项目工作台":
         render_workbench_page(service, project_id)
-    elif page == "需求结构与HTML追踪":
-        render_traceability_page(service, project_id)
-    elif page == "文档与知识库":
-        render_knowledge_page(service, project_id, case_library, int(config["top_k"]))
-    elif page == "智能生成":
+    elif page == "资料与需求":
+        render_knowledge_page(
+            service,
+            project_id,
+            case_library,
+            int(config["top_k"]),
+            bool(config["use_ollama"]),
+        )
+    elif page == "生成测试用例":
         render_generation_page(service, project_id, case_library, config)
-    elif page == "结果审查与追溯":
+    elif page == "用例审查":
         render_review_trace_page(service, project_id, config)
     elif page == "导出中心":
         render_export_page(service, project_id)

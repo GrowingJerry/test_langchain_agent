@@ -15,9 +15,9 @@ if str(ROOT) not in sys.path:
 
 EXPECTED_PAGES = [
     "项目工作台",
-    "文档与知识库",
-    "智能生成",
-    "结果审查与追溯",
+    "资料与需求",
+    "生成测试用例",
+    "用例审查",
     "导出中心",
     "系统设置",
 ]
@@ -41,7 +41,7 @@ def main() -> None:
     from application.services.project_service import ProjectManager
     from workflows.scenario.card_extractor import extract_and_save_scenario_cards
 
-    assert _app_pages() == EXPECTED_PAGES, "主导航不是最终六页面"
+    assert _app_pages() == EXPECTED_PAGES, "主导航不是整合后的六页面"
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
     assert "st.tabs" not in app_source
     assert "project_pages" not in app_source

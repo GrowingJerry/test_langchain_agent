@@ -5,6 +5,8 @@ import re
 from typing import Dict, List
 import streamlit as st
 
+from ui.traceability_page import render_case_optimization_panel
+
 
 def _editable_lines(value) -> str:
     """Render mixed LLM output (strings/dicts/lists) safely in a text area."""
@@ -106,7 +108,7 @@ def _visual_evidence_summary_rows(
 
 
 def render_review_trace_page(service, project_id, config) -> None:
-    st.header("结果审查与追溯")
+    st.header("用例审查")
     if isinstance(config, dict):
         use_ollama_review = bool(config.get("use_ollama_review", False))
         use_ollama = bool(config.get("use_ollama", False))
@@ -121,6 +123,33 @@ def render_review_trace_page(service, project_id, config) -> None:
     saved = service.list_generated_cases(project_id)
     if not saved:
         st.info("当前项目尚未生成测试用例。")
+        return
+    section = st.radio(
+        "当前任务",
+        ["审查与人工修改", "单条对话优化", "覆盖与来源"],
+        horizontal=True,
+        key=f"review_section_{project_id}",
+    )
+    if section == "单条对话优化":
+        render_case_optimization_panel(service, project_id)
+        return
+    if section == "覆盖与来源":
+        trace_rows = service.traceability_rows(project_id)
+        coverage = trace_rows.get("atomic_coverage_matrix") or []
+        if coverage:
+            st.subheader("原子需求覆盖矩阵")
+            st.dataframe(coverage, hide_index=True, use_container_width=True)
+        else:
+            st.info("尚无原子需求覆盖数据；请先在“资料与需求”确认需求结构。")
+        rows = service.export_rows(project_id)
+        st.subheader("需求—用例追踪矩阵")
+        st.dataframe(
+            rows["requirement_case_matrix"], hide_index=True, use_container_width=True
+        )
+        with st.expander("来源文档与片段"):
+            st.dataframe(
+                rows["trace_sources"], hide_index=True, use_container_width=True
+            )
         return
     cases_by_id = {row["case_id"]: row for row in saved}
     if st.button("执行规则审查", key=f"rule_review_{project_id}"):
@@ -219,10 +248,4 @@ def render_review_trace_page(service, project_id, config) -> None:
     if visual_evidence:
         with st.expander("当前项目视觉证据详情"):
             st.json(visual_evidence)
-    st.subheader("需求—用例追踪矩阵")
-    st.dataframe(
-        rows["requirement_case_matrix"], hide_index=True, use_container_width=True
-    )
-    with st.expander("来源文档与片段"):
-        st.dataframe(rows["trace_sources"], hide_index=True, use_container_width=True)
-    st.info("确认或修改完成后，下一步请进入“导出中心”生成项目级 Excel 或 Word 文档。")
+    st.info("确认或修改完成后，可切换到“覆盖与来源”检查追踪，再进入导出中心。")

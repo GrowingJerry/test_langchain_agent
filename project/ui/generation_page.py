@@ -332,39 +332,10 @@ def _scenario_mode(service: Any, project_id: str, case_library: Any, config: dic
 
 
 def _requirement_mode(service: Any, project_id: str, case_library: Any, config: dict[str, Any]) -> None:
-    st.caption("兼容原有按需求生成流程，并保留 Agent/规则模式切换。")
-    buttons = st.columns(3)
-    if buttons[0].button("抽取/更新项目画像", key=f"profile_{project_id}"):
-        service.extract_profile(project_id, config["use_ollama"])
-        st.rerun()
-    if buttons[1].button("抽取/更新需求", key=f"requirements_{project_id}"):
-        st.session_state[f"requirement_extraction_preview_{project_id}"] = (
-            service.preview_requirement_extraction(project_id)
-        )
-    if buttons[2].button("抽取/更新旧场景卡", key=f"legacy_scenarios_{project_id}"):
-        service.extract_scenarios(project_id, config["use_ollama"])
-        st.rerun()
-    preview = st.session_state.get(f"requirement_extraction_preview_{project_id}")
-    if preview:
-        report = preview.get("report") or {}
-        st.subheader("需求抽取质量摘要")
-        st.json(report)
-        machine_rows = list(preview.get("requirements") or [])
-        edited_rows = st.data_editor(
-            _review_rows(machine_rows),
-            hide_index=True,
-            use_container_width=True,
-            key=f"requirement_review_editor_{project_id}",
-        )
-        if st.button("保存审核后的需求清单", type="primary", key=f"save_reviewed_requirements_{project_id}"):
-            reviewed = _rows_to_reviewed_dicts(edited_rows, machine_rows)
-            service.save_reviewed_requirements(project_id, reviewed, machine_rows)
-            st.session_state.pop(f"requirement_extraction_preview_{project_id}", None)
-            st.success("审核后的需求已入库。")
-            st.rerun()
+    st.caption("本页只负责生成；文档上传、结构增强和需求审核统一在“资料与需求”完成。")
     requirements = service.list_requirements(project_id)
     if not requirements:
-        st.info("请先上传资料并抽取需求。")
+        st.info("尚无已确认需求。请先进入“资料与需求 → 3. 需求审核”。")
         return
     st.subheader("需求抽取预览")
     st.dataframe(_requirement_preview_rows(requirements), hide_index=True, use_container_width=True)
@@ -560,18 +531,19 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
 def render_generation_page(
     service: Any, project_id: str, case_library: Any, config: dict[str, Any]
 ) -> None:
-    st.header("智能生成 · 场景驱动 Agent")
+    st.header("生成测试用例")
     if not project_id:
         st.info("请先创建项目。")
         return
+    st.caption("常规项目直接按已审核需求生成；场景编译属于可选的高级能力。")
     mode = st.radio(
-        "生成模式", ["场景驱动生成", "按需求生成（兼容）"], horizontal=True,
+        "生成方式", ["按需求生成", "高级场景生成"], horizontal=True,
         key=f"generation_mode_{project_id}",
     )
-    if mode == "场景驱动生成":
-        _scenario_mode(service, project_id, case_library, config)
-    else:
+    if mode == "按需求生成":
         _requirement_mode(service, project_id, case_library, config)
+    else:
+        _scenario_mode(service, project_id, case_library, config)
     st.subheader("已生成用例")
     only_confirm = st.checkbox("只显示需人工确认", key=f"only_confirm_{project_id}")
     saved = [row.get("case_json") or {} for row in service.list_generated_cases(project_id)]
@@ -583,5 +555,4 @@ def render_generation_page(
     if scores:
         with st.expander("历史质量评分"):
             st.dataframe(scores, hide_index=True, use_container_width=True)
-    st.info("生成后可在“结果审查与追溯”中查看完整来源并完成人工确认。")
-
+    st.info("生成后进入“用例审查”，可人工修改、单条对话优化并检查覆盖来源。")
