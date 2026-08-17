@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>测试夹具：个人信息配置</title></head>
+<body><main><h1>个人信息配置</h1><form id="profile-form">
+<label for="name">姓名</label><input id="name" name="name" required maxlength="30">
+<label for="mobile">手机号码</label><input id="mobile" name="mobile" placeholder="请输入11位手机号" pattern="[0-9]{11}">
+<label for="email">电子邮箱</label><input id="email" name="email" type="email">
+<button id="save" type="submit" onclick="validateProfile()">保存</button>
+<button id="cancel" type="button">取消</button>
+</form><div id="message" role="status" aria-label="操作提示"></div></main></body></html>

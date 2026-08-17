@@ -1,0 +1,6 @@
+{
+  "fixture_notice": "结构真实、内容虚构的自动化测试夹具，不代表真实业务资料",
+  "capabilities": ["XWMP", "XTGL"],
+  "profile_function": "GRXXPZ",
+  "required_indicator_phrases": ["查看", "修改", "姓名不能为空", "11位数字", "邮箱格式", "保存", "保存成功"]
+}

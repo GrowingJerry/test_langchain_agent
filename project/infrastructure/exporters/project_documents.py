@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from openpyxl import Workbook
+from openpyxl.styles import Alignment
 
 from application.services.project_service import ProjectManager
 
@@ -64,6 +65,9 @@ def _write_sheet(
     sheet.append(headers)
     for row in rows:
         sheet.append([_join(row.get(header, "")) for header in headers])
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
 
 
 def _export_dir(manager: ProjectManager, project_id: str) -> Path:
@@ -194,12 +198,32 @@ def build_project_export_rows(
             }
         )
 
+    def scoped_rows(sql: str) -> List[Dict[str, Any]]:
+        with manager.connections.connection() as conn:
+            return [dict(row) for row in conn.execute(sql, (project_id,)).fetchall()]
+
+    requirement_nodes = scoped_rows("SELECT identifier,name,level,parent_id,hierarchy_path_json,sections_json,source_document,need_human_confirm FROM requirement_nodes WHERE project_id=? ORDER BY level,name")
+    indicators = scoped_rows("SELECT indicator_id,capability_id,function_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm FROM requirement_indicators WHERE project_id=? ORDER BY function_id,indicator_id")
+    html_elements = scoped_rows("SELECT page_id,element_id,tag,element_type,element_json FROM html_elements WHERE project_id=? ORDER BY page_id,element_id")
+    element_links = scoped_rows("SELECT indicator_id,page_id,confirmed_element_id,confidence,reason,status,need_human_confirm,candidates_json FROM requirement_element_links WHERE project_id=? ORDER BY indicator_id")
+    atomic_matrix = scoped_rows("SELECT indicator_id,case_id,case_version,step_numbers_json,coverage_type,coverage_status FROM case_indicator_links WHERE project_id=? ORDER BY indicator_id,case_id")
+    versions = scoped_rows("SELECT case_id,version_no,parent_version_no,user_feedback,model_name,changed_fields_json,acceptance_status,operator,created_at FROM case_versions WHERE project_id=? ORDER BY case_id,version_no")
+    pending = [row for row in indicators if row.get("need_human_confirm")] + [row for row in element_links if row.get("need_human_confirm")]
+    conflicts = [row for row in element_links if row.get("status") == "conflict"]
     return {
         "project_profile": profile_rows,
         "requirements": requirement_rows,
         "test_cases": case_rows,
         "requirement_case_matrix": matrix_rows,
         "trace_sources": trace_rows,
+        "requirement_hierarchy": requirement_nodes,
+        "atomic_requirements": indicators,
+        "html_elements": html_elements,
+        "requirement_element_links": element_links,
+        "atomic_coverage_matrix": atomic_matrix,
+        "case_version_history": versions,
+        "pending_confirmation": pending,
+        "requirement_html_conflicts": conflicts,
     }
 
 
@@ -222,6 +246,17 @@ def export_project_excel(manager: ProjectManager, project_id: str) -> Path:
     _write_sheet(workbook, "测试用例", rows["test_cases"])
     _write_sheet(workbook, "需求-用例追踪矩阵", rows["requirement_case_matrix"])
     _write_sheet(workbook, "来源片段追溯表", rows["trace_sources"])
+    for key, title in (
+        ("requirement_hierarchy", "需求层级表"),
+        ("atomic_requirements", "原子需求表"),
+        ("html_elements", "HTML元素表"),
+        ("requirement_element_links", "需求元素匹配表"),
+        ("atomic_coverage_matrix", "原子需求覆盖矩阵"),
+        ("case_version_history", "用例版本历史"),
+        ("pending_confirmation", "待人工确认事项"),
+        ("requirement_html_conflicts", "需求HTML冲突"),
+    ):
+        _write_sheet(workbook, title, rows[key])
     workbook.save(path)
     return path
 

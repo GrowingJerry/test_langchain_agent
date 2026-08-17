@@ -8,7 +8,7 @@ from typing import Dict
 
 from infrastructure.database.connection import SQLiteConnectionManager
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 16
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -303,6 +303,78 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
                 FOREIGN KEY(project_id) REFERENCES projects(project_id),
                 FOREIGN KEY(learning_rule_id) REFERENCES approved_learning_rules(learning_rule_id)
             );
+            CREATE TABLE IF NOT EXISTS requirement_nodes (
+                project_id TEXT NOT NULL, node_id TEXT NOT NULL, parent_id TEXT, identifier TEXT NOT NULL,
+                name TEXT NOT NULL, level INTEGER NOT NULL, hierarchy_path_json TEXT NOT NULL DEFAULT '[]',
+                sections_json TEXT NOT NULL DEFAULT '{}', source_document TEXT, source_block_id TEXT,
+                identifier_generated INTEGER NOT NULL DEFAULT 0, need_human_confirm INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(project_id, node_id),
+                FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS requirement_indicators (
+                project_id TEXT NOT NULL, indicator_id TEXT NOT NULL, capability_id TEXT, function_id TEXT NOT NULL,
+                parent_indicator_id TEXT, indicator_text TEXT NOT NULL, indicator_type TEXT NOT NULL,
+                source_json TEXT NOT NULL DEFAULT '{}', rules_json TEXT NOT NULL DEFAULT '{}',
+                verification_scope TEXT NOT NULL DEFAULT 'offline', need_human_confirm INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(project_id, indicator_id),
+                FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS html_pages (
+                project_id TEXT NOT NULL, page_id TEXT NOT NULL, title TEXT, page_path TEXT NOT NULL,
+                source_asset TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(project_id, page_id), FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS html_elements (
+                project_id TEXT NOT NULL, element_id TEXT NOT NULL, page_id TEXT NOT NULL, tag TEXT NOT NULL,
+                element_type TEXT, element_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(project_id, element_id), FOREIGN KEY(project_id, page_id) REFERENCES html_pages(project_id, page_id)
+            );
+            CREATE TABLE IF NOT EXISTS html_observations (
+                project_id TEXT NOT NULL, observation_id TEXT NOT NULL, page_id TEXT NOT NULL, element_id TEXT,
+                action TEXT, result_json TEXT NOT NULL DEFAULT '{}', observed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(project_id, observation_id), FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS requirement_element_links (
+                project_id TEXT NOT NULL, link_id TEXT NOT NULL, indicator_id TEXT NOT NULL, page_id TEXT,
+                confirmed_element_id TEXT, candidates_json TEXT NOT NULL DEFAULT '[]', confidence REAL NOT NULL DEFAULT 0,
+                reason TEXT, status TEXT NOT NULL DEFAULT 'proposed', need_human_confirm INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(project_id, link_id),
+                FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS case_indicator_links (
+                project_id TEXT NOT NULL, case_id TEXT NOT NULL, indicator_id TEXT NOT NULL, case_version INTEGER NOT NULL DEFAULT 1,
+                step_numbers_json TEXT NOT NULL DEFAULT '[]', coverage_type TEXT, coverage_status TEXT NOT NULL DEFAULT 'covered',
+                PRIMARY KEY(project_id, case_id, indicator_id, case_version), FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS case_versions (
+                project_id TEXT NOT NULL, case_id TEXT NOT NULL, version_no INTEGER NOT NULL, parent_version_no INTEGER,
+                case_json TEXT NOT NULL, user_feedback TEXT, context_snapshot_json TEXT NOT NULL DEFAULT '{}', model_name TEXT,
+                changed_fields_json TEXT NOT NULL DEFAULT '[]', acceptance_status TEXT NOT NULL DEFAULT 'proposed', operator TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(project_id, case_id, version_no),
+                FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS case_conversations (
+                project_id TEXT NOT NULL, conversation_id TEXT NOT NULL, case_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(project_id, conversation_id),
+                FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS case_messages (
+                project_id TEXT NOT NULL, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL, role TEXT NOT NULL,
+                content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(project_id, message_id), FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS site_packages (
+                project_id TEXT NOT NULL, site_package_id TEXT NOT NULL, filename TEXT NOT NULL,
+                root_path TEXT NOT NULL, entry_path TEXT, manifest_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(project_id,site_package_id),
+                FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS site_navigation_relations (
+                project_id TEXT NOT NULL, site_package_id TEXT NOT NULL, relation_id TEXT NOT NULL,
+                source_page TEXT NOT NULL, target TEXT NOT NULL, relation_type TEXT NOT NULL,
+                relation_json TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(project_id,site_package_id,relation_id),
+                FOREIGN KEY(project_id,site_package_id) REFERENCES site_packages(project_id,site_package_id)
+            );
             CREATE TABLE IF NOT EXISTS equipment_import_errors (
                 error_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_file TEXT NOT NULL,
                 source_line_no INTEGER NOT NULL, error_type TEXT NOT NULL, error_message TEXT NOT NULL,
@@ -312,6 +384,15 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
             """
         )
         cursor = conn.cursor()
+        _ensure_columns(
+            cursor, "html_pages", {"site_package_id": "TEXT NOT NULL DEFAULT ''"}
+        )
+        _ensure_columns(
+            cursor, "html_elements", {"site_package_id": "TEXT NOT NULL DEFAULT ''"}
+        )
+        _ensure_columns(
+            cursor, "html_observations", {"site_package_id": "TEXT NOT NULL DEFAULT ''", "evidence_json": "TEXT NOT NULL DEFAULT '{}'"}
+        )
         _ensure_columns(
             cursor,
             "generation_runs",
@@ -592,6 +673,13 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_project_file_hash ON project_documents(project_id, file_hash) WHERE file_hash IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS idx_chunks_project_parent ON project_chunks(project_id, parent_section_id, chunk_level)",
             "CREATE INDEX IF NOT EXISTS idx_documents_project_status ON project_documents(project_id, processing_status)",
+            "CREATE INDEX IF NOT EXISTS idx_requirement_nodes_project_parent ON requirement_nodes(project_id, parent_id, level)",
+            "CREATE INDEX IF NOT EXISTS idx_indicators_project_function ON requirement_indicators(project_id, function_id)",
+            "CREATE INDEX IF NOT EXISTS idx_html_elements_project_page ON html_elements(project_id, page_id)",
+            "CREATE INDEX IF NOT EXISTS idx_requirement_links_project_indicator ON requirement_element_links(project_id, indicator_id)",
+            "CREATE INDEX IF NOT EXISTS idx_case_versions_project_case ON case_versions(project_id, case_id, version_no)",
+            "CREATE INDEX IF NOT EXISTS idx_site_packages_project ON site_packages(project_id,site_package_id)",
+            "CREATE INDEX IF NOT EXISTS idx_site_navigation_project ON site_navigation_relations(project_id,site_package_id)",
         ):
             cursor.execute(statement)
         cursor.execute(

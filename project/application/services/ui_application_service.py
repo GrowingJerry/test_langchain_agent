@@ -567,6 +567,82 @@ class UIApplicationService:
     def export_rows(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]:
         return build_project_export_rows(self.manager, project_id)
 
+    def analyze_csci_docx(self, project_id: str, path: Path) -> Dict[str, Any]:
+        from application.services.traceability_service import atomic_indicators, parse_csci_docx
+        from infrastructure.database.json_codec import dumps_json
+        nodes = parse_csci_docx(path)
+        indicators = [item for node in nodes for item in atomic_indicators(node)]
+        with self.manager.connections.transaction() as conn:
+            for node in nodes:
+                conn.execute("INSERT OR REPLACE INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (project_id,node.node_id,node.parent_id,node.identifier,node.name,node.level,dumps_json(node.hierarchy_path),dumps_json(node.sections),node.source_document,node.source_block_id,int(node.identifier_generated),int(node.need_human_confirm)))
+            for item in indicators:
+                conn.execute("INSERT OR REPLACE INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,
+                     dumps_json({"section":item.source_section,"block_id":item.source_block_id,"source_text":item.source_text}),
+                     dumps_json({"inputs":item.input_constraints,"processing":item.processing_rules,"expected":item.expected_behavior,"exceptions":item.exception_rules}),item.verification_scope,int(item.need_human_confirm)))
+        return {"nodes":[x.model_dump(mode="json") for x in nodes],"indicators":[x.model_dump(mode="json") for x in indicators]}
+
+    def analyze_offline_html(self, project_id: str, filename: str, content: bytes) -> Dict[str, Any]:
+        from application.services.traceability_service import parse_offline_html
+        from infrastructure.database.json_codec import dumps_json
+        page, elements = parse_offline_html(content, filename)
+        with self.manager.connections.transaction() as conn:
+            conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset) VALUES(?,?,?,?,?)",(project_id,page["page_id"],page["title"],page["path"],filename))
+            for item in elements:
+                conn.execute("INSERT OR REPLACE INTO html_elements(project_id,element_id,page_id,tag,element_type,element_json) VALUES(?,?,?,?,?,?)",(project_id,item.element_id,item.page_id,item.tag,item.element_type,dumps_json(item.model_dump(mode="json"))))
+        return {"page":page,"elements":[x.model_dump(mode="json") for x in elements]}
+
+    def analyze_site_zip(self, project_id: str, filename: str, content: bytes) -> Dict[str, Any]:
+        from hashlib import sha256
+        from application.services.offline_site_service import analyze_site, safe_extract_zip
+        from application.services.traceability_service import parse_offline_html
+        from infrastructure.database.json_codec import dumps_json
+        site_id="SITE-"+sha256(content).hexdigest()[:16].upper(); root=self.manager.project_dir(project_id)/"site_packages"/site_id
+        safe_extract_zip(content,root); manifest=analyze_site(root); entry=(manifest["entry_candidates"] or [""])[0]
+        with self.manager.connections.transaction() as conn:
+            conn.execute("INSERT OR REPLACE INTO site_packages(project_id,site_package_id,filename,root_path,entry_path,manifest_json) VALUES(?,?,?,?,?,?)",(project_id,site_id,filename,str(root),entry,dumps_json(manifest)))
+            for page_data in manifest["pages"]:
+                page,elements=parse_offline_html((root/page_data["path"]).read_bytes(),page_data["path"])
+                conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset,site_package_id) VALUES(?,?,?,?,?,?)",(project_id,page["page_id"],page["title"],page["path"],filename,site_id))
+                for item in elements:
+                    conn.execute("INSERT OR REPLACE INTO html_elements(project_id,element_id,page_id,tag,element_type,element_json,site_package_id) VALUES(?,?,?,?,?,?,?)",(project_id,item.element_id,item.page_id,item.tag,item.element_type,dumps_json(item.model_dump(mode="json")),site_id))
+            for index,relation in enumerate(manifest["navigation_relations"]):
+                conn.execute("INSERT OR REPLACE INTO site_navigation_relations(project_id,site_package_id,relation_id,source_page,target,relation_type,relation_json) VALUES(?,?,?,?,?,?,?)",(project_id,site_id,f"REL-{index:05d}",relation["source"],relation["target"],relation["kind"],dumps_json(relation)))
+        return {"site_package_id":site_id,"root_path":str(root),**manifest}
+
+    def explore_site_package(self, project_id: str, site_package_id: str, entry: str, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
+        from application.services.offline_site_service import explore_site
+        from infrastructure.database.json_codec import dumps_json
+        with self.manager.connections.connection() as conn:
+            row=conn.execute("SELECT root_path FROM site_packages WHERE project_id=? AND site_package_id=?",(project_id,site_package_id)).fetchone()
+        if not row: raise KeyError("当前项目中不存在该站点包")
+        evidence=self.manager.project_dir(project_id)/"site_packages"/site_package_id/"evidence"; result=explore_site(Path(row["root_path"]),entry,plan,evidence)
+        with self.manager.connections.transaction() as conn:
+            conn.execute("INSERT INTO html_observations(project_id,observation_id,page_id,action,result_json,site_package_id,evidence_json) VALUES(?,?,?,?,?,?,?)",(project_id,f"OBS-{__import__('uuid').uuid4().hex[:16]}",entry,"bounded_plan",dumps_json(result),site_package_id,dumps_json({"screenshots":[x.get("after_screenshot") for x in result["events"] if x.get("after_screenshot")]})))
+        return result
+
+    def traceability_rows(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]:
+        rows = self.export_rows(project_id)
+        keys = ("requirement_hierarchy","atomic_requirements","html_elements","requirement_element_links","atomic_coverage_matrix","case_version_history")
+        return {key: rows[key] for key in keys}
+
+    def case_regeneration_context(self, project_id: str, case_id: str) -> Dict[str, Any]:
+        from application.services.case_regeneration_service import CaseRegenerationService
+        return CaseRegenerationService(self.manager, self.settings).context(project_id, case_id)
+
+    def regenerate_single_case(self, project_id: str, case_id: str, feedback: str) -> Dict[str, Any]:
+        from application.services.case_regeneration_service import CaseRegenerationService
+        return CaseRegenerationService(self.manager, self.settings).regenerate(project_id, case_id, feedback)
+
+    def update_case_version(self, project_id: str, case_id: str, version_no: int, action: str) -> Dict[str, Any]:
+        from infrastructure.repositories.traceability_repository import TraceabilityRepository
+        repository=TraceabilityRepository(self.manager.connections)
+        if action=="accept": return repository.accept_version(project_id,case_id,version_no)
+        if action=="reject": repository.set_version_status(project_id,case_id,version_no,"rejected"); return {"status":"rejected"}
+        if action=="rollback": return repository.rollback(project_id,case_id,version_no,operator="streamlit-user")
+        raise ValueError("不支持的版本操作")
+
     def export_excel(self, project_id: str) -> Path:
         return export_project_excel(self.manager, project_id)
 

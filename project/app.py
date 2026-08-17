@@ -15,10 +15,12 @@ from ui.generation_page import render_generation_page
 from ui.review_trace_page import render_review_trace_page
 from ui.export_page import render_export_page
 from ui.settings_page import render_settings_page
+from ui.traceability_page import render_traceability_page
 
 
 PAGES = [
     "项目工作台",
+    "需求结构与HTML追踪",
     "文档与知识库",
     "智能生成",
     "结果审查与追溯",
@@ -91,6 +93,8 @@ def main() -> None:
     st.title("项目级测试文档智能生成系统")
     if page == "项目工作台":
         render_workbench_page(service, project_id)
+    elif page == "需求结构与HTML追踪":
+        render_traceability_page(service, project_id)
     elif page == "文档与知识库":
         render_knowledge_page(service, project_id, case_library, int(config["top_k"]))
     elif page == "智能生成":

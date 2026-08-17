@@ -1,0 +1,1 @@
+"""Fictional CSCI acceptance fixture."""

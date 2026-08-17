@@ -1,5 +1,9 @@
 """Canonical domain schemas and legacy compatibility exports."""
 
+from domain.schemas.traceability import CoveragePlanItem, HtmlElement, RequirementIndicator, RequirementNode
+
+__all__ = ["CoveragePlanItem", "HtmlElement", "RequirementIndicator", "RequirementNode"]
+
 from domain.schemas.allocation import EquipmentAllocation, ScenarioValidationResult
 from domain.schemas.equipment import (
     EquipmentCapability,
