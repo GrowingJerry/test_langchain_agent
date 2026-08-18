@@ -30,6 +30,7 @@ def render_workbench_page(service, project_id: Optional[str]) -> None:
     traces = service.list_trace_sources(project_id)
     exports_dir = service.project_dir(project_id) / "exports"
     exported = exports_dir.exists() and any(exports_dir.iterdir())
+    workflow=service.workflow_status(project_id)
     st.subheader(project.get("project_name", project_id))
     st.caption(project.get("description") or "暂无项目说明")
     cols = st.columns(4)
@@ -48,13 +49,12 @@ def render_workbench_page(service, project_id: Optional[str]) -> None:
             "主要功能：", "、".join(profile.get("main_functions") or []) or "尚未抽取"
         )
     steps = [
-        ("上传资料", bool(docs)),
-        ("抽取项目画像", bool(profile)),
-        ("抽取需求", bool(requirements)),
-        ("抽取场景卡片", bool(scenario_cards)),
-        ("生成用例", bool(cases)),
-        ("审查用例", bool(service.list_review_results(project_id))),
-        ("导出文档", exported),
+        ("DOCX资料已上传",workflow["document_uploaded"]),("已识别3.2子系统概述",workflow["section_32_identified"]),("已识别3.3详细功能",workflow["section_33_identified"]),
+        (f"最低功能节点：{workflow['lowest_function_count']}",workflow["lowest_function_count"]>0),(f"功能描述原子项：{workflow['atom_count']}",workflow["atom_count"]>0),("功能描述拆分审核通过",workflow["atom_review_passed"]),
+        ("HTML站点已上传",workflow["html_uploaded"]),(f"HTML页面：{workflow['page_count']}",workflow["page_count"]>0),(f"Playwright：{workflow['playwright']['status']}",workflow["playwright"]["available"]),
+        ("自动探索完成",workflow["exploration_completed"]),(f"需求—页面绑定：{workflow['binding_completion']:.0%}",workflow["binding_completion"]>=1),(f"待人工确认：{workflow['pending_confirmation']}",workflow["pending_confirmation"]==0),
+        (f"已生成用例：{workflow['case_count']}",workflow["case_count"]>0),(f"原子功能覆盖率：{workflow['atomic_coverage_rate']:.0%}",workflow["atomic_coverage_rate"]>=1),(f"待联机验证：{workflow['online_required']}",True),
+        ("已审查",workflow["reviewed"]),("已导出",workflow["exported"]),
     ]
     st.subheader("流程状态")
     st.dataframe(
@@ -74,8 +74,10 @@ def render_workbench_page(service, project_id: Optional[str]) -> None:
     elif requirements and scenario_cards:
         st.info("当前状态：需求与场景卡片已准备完成。")
         st.info("下一步：进入“生成测试用例”，选择需求后批量生成。")
-    elif requirements:
-        st.info("当前状态：已抽取需求。下一步进入“生成测试用例”；场景编译为可选高级流程。")
+    elif workflow["atom_review_passed"] and workflow["binding_completion"]>=1:
+        st.info("下一步：进入“生成测试用例”，选择已审核最低功能并按覆盖计划生成。")
+    elif workflow["section_33_identified"]:
+        st.info("下一步：进入“资料与需求”，完成原子功能审核、HTML分析、自动探索和语义绑定。")
     elif docs:
         st.info(
             "当前状态：已上传资料。下一步进入“资料与需求”确认需求结构。"

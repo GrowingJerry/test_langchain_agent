@@ -1,0 +1,1392 @@
+﻿[
+    {
+        "Path":  "wheelhouse\\greenlet-3.5.5-cp310-cp310-win_amd64.whl",
+        "Length":  322832,
+        "SHA256":  "740E544169527B82695CE76AF2F7AD6F030904658F2F3921A1D245771FB88CFC"
+    },
+    {
+        "Path":  "wheelhouse\\playwright-1.55.0-py3-none-win_amd64.whl",
+        "Length":  35476048,
+        "SHA256":  "7EB5956473CA1951ABB51537E6A0DA55257BB2E25FC37C2B75AF094A5C93736C"
+    },
+    {
+        "Path":  "wheelhouse\\pyee-13.0.1-py3-none-any.whl",
+        "Length":  15659,
+        "SHA256":  "AF2F8FEDE4171EF667DFDED53F96E2ED0D6E6BD7EE3BB46437F77E3B57689228"
+    },
+    {
+        "Path":  "wheelhouse\\typing_extensions-4.16.0-py3-none-any.whl",
+        "Length":  45571,
+        "SHA256":  "481CAA481374E813C1B176ADA14E97F1F67A4539CE9CFEB3F350D78D6370C2E8"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\.links\\a6c2a5a50d60135cf7c24791e679dd431c80e1f6",
+        "Length":  56,
+        "SHA256":  "A027BF2103566D28FB42865AF0D6805602CFB1969E61B189FAA66E63921AB8BE"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\DEPENDENCIES_VALIDATED",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\INSTALLATION_COMPLETE",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\140.0.7339.16.manifest",
+        "Length":  226,
+        "SHA256":  "3E4D3E901C67726EB480E5DB178DB99BD056A62DAAEA3F8C6401C96385AC97FC"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome.dll",
+        "Length":  257848832,
+        "SHA256":  "9D7057FA781C75E00B7296C00045AED35B39941CA8A3EFA8D8A15B2B66932577"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome.exe",
+        "Length":  3006976,
+        "SHA256":  "3C9E320785466D7C22E466AA398F90A13B297BAE250994620C8170952869D6EF"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome_100_percent.pak",
+        "Length":  775646,
+        "SHA256":  "5A55325C247FA6CF7E16932F7AA308A5D82AB8BE23AD24BD41E45DB6600AD7DF"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome_200_percent.pak",
+        "Length":  1282648,
+        "SHA256":  "73D7D060B5CAC445BDC0152E7FFA72C8AC4F481A066812C45C6CDAF375C92E9C"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome_elf.dll",
+        "Length":  1672704,
+        "SHA256":  "88A7C5AA2490245D8DC8C7607348CF1E096BC72F2BD7440062CE976F52B8B3E7"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome_proxy.exe",
+        "Length":  1486336,
+        "SHA256":  "96F471C51E6AD518043CCF28EADE96CAF710B2F14F4F2478698EEEF0EABBDEA9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome_pwa_launcher.exe",
+        "Length":  1791488,
+        "SHA256":  "9A1142DCC7297BF451BC3D4BBA79D4F9ED90BFFB6D3DD12FF07D7A11B8EB4B27"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\chrome_wer.dll",
+        "Length":  111104,
+        "SHA256":  "A37C97F31EC6985D1C246ED8287532E5F132FA5963C4328BF9160D36E751754A"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\D3DCompiler_47.dll",
+        "Length":  4916728,
+        "SHA256":  "289767B49DC8525BCE262EA06FEE4EF9FCED2E131A55B25654CE871C1F0498B2"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\elevated_tracing_service.exe",
+        "Length":  3608064,
+        "SHA256":  "7FA112642BD12A586E773C683F056B808935A15672E30FA6F0B7A33DC01BE472"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\elevation_service.exe",
+        "Length":  2262016,
+        "SHA256":  "A7203CA756CB8F17A99528312D95021E616ACE95F0BF062AA3339C1947D48BD1"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\eventlog_provider.dll",
+        "Length":  6144,
+        "SHA256":  "C43ACD79B82DB5DE802391FDF480DDE45A38257C4EDBDA4DD398A0FC72FDEA1B"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\First Run",
+        "Length":  8,
+        "SHA256":  "839ADBAACA1C43DD4575C502ADA96EBB4651F1A69B6FC5E42679BEB47584181E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\icudtl.dat",
+        "Length":  10467680,
+        "SHA256":  "5070DE99FBD8A48378543511FB7A072F85BF36F94B4F4E1D420D54BE1435D6F1"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\libEGL.dll",
+        "Length":  503296,
+        "SHA256":  "97BEB4E8014A5636CA28D450E75919BFB14BD2E74A63E55E49308546C8B15982"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\libGLESv2.dll",
+        "Length":  7946240,
+        "SHA256":  "B752A66F5225BC963EDEF49BF3A73BE98F0B75A6C412FBB1B1EA44E77E7F7BBE"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\notification_helper.exe",
+        "Length":  1701888,
+        "SHA256":  "0D064A636C3925571F1FC13869307A5FA0B3190257F2B55E745CF07884EE1A25"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\resources.pak",
+        "Length":  11908572,
+        "SHA256":  "5F51E434852F6D032669356A788DEA7253F0C43FC989D453347CA8F3C542BC5D"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\v8_context_snapshot.bin",
+        "Length":  712173,
+        "SHA256":  "0E64A89A7D21A71BE706C9DAD49EC6EDA9A478232951586220BA98A64BA74333"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\vk_swiftshader.dll",
+        "Length":  5388288,
+        "SHA256":  "17A414A8E731B859034178B2E41A2C7A57DE8F2FA6EFEAAA3432B9DF2E21DEF5"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\vk_swiftshader_icd.json",
+        "Length":  106,
+        "SHA256":  "32D83FF113FEF532A9F97E0D2831F8656628AB1C99E9060F0332B1532839AFD9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\vulkan-1.dll",
+        "Length":  919040,
+        "SHA256":  "830607DEC25EF24BA0F9B22E83EBDC6591B1DA345062B8F6704D13A5C090F415"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\IwaKeyDistribution\\iwa-key-distribution.pb",
+        "Length":  687,
+        "SHA256":  "6A08FEFFAB2201C2EF3C3ED9D7C83F2F1C5CE3B190453029697CA9D712F6A1CD"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\IwaKeyDistribution\\manifest.json",
+        "Length":  114,
+        "SHA256":  "25EAF9D40F1715B5EF9E89B9F65DD362CB3891C29ADB95FF03088641EC76DDB6"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\af.pak",
+        "Length":  523318,
+        "SHA256":  "41A0220F43666C3C620AEA73EA36B4929AE86C4C9F322ABDD22AC71541867D19"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\af_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\af_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\af_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\am.pak",
+        "Length":  844880,
+        "SHA256":  "CB07CDDA0E6F9C6A067875FEA748A1FFDEFD6313DD60A417AB6AB7DDC627CB47"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\am_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\am_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\am_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ar.pak",
+        "Length":  932970,
+        "SHA256":  "9CBF8D70D81DF9C7388F3586A871EB6C97F4DB9A717EE1A64304540E545D24D3"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ar_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ar_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ar_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bg.pak",
+        "Length":  966275,
+        "SHA256":  "819A14A4F4C2193E6F2BD038BB4E9BC214628CA1E986A2BA1D82721294AD863A"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bg_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bg_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bg_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bn.pak",
+        "Length":  1234478,
+        "SHA256":  "19694A449E97E793C0ACCD66D08C95A0052D0E54B3810732FAB68A455305ACCF"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bn_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bn_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\bn_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ca.pak",
+        "Length":  594241,
+        "SHA256":  "3F59A0415D5EC93297070E3CA4584B564B39162B44A0E2A8B1D00B99F746A62E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ca_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ca_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ca_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\cs.pak",
+        "Length":  601984,
+        "SHA256":  "0525F6622E84334DDE6579806F28E44C7224C47BBDA5258D81DF6EA98D7480B9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\cs_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\cs_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\cs_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\da.pak",
+        "Length":  551241,
+        "SHA256":  "AE4F21CA905AB016BBDFD3C0C15BD07191808BFE3B7DA9178FE262B67138AB1E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\da_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\da_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\da_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\de.pak",
+        "Length":  596149,
+        "SHA256":  "ABD4979F7B14F53362766CF80D87E9CDED96D542A921DD59D8CA31A0ABF4495D"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\de_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\de_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\de_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\el.pak",
+        "Length":  1060112,
+        "SHA256":  "944A0274A4FC33B62CFA46C602F8FB866B613F169E58EB561AA23FEB11BE3231"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\el_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\el_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\el_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-GB.pak",
+        "Length":  475486,
+        "SHA256":  "85CFD3D56A7E6C7A19976CEC4F9107B1CFFDC742E8ACE6B1AE85C4841CA459F9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-GB_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-GB_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-GB_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-US.pak",
+        "Length":  479686,
+        "SHA256":  "2EF2B0498145C9E14C3A0D537FAA0B0A4522AC3003DF6C6EAC72F617574B23F5"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-US_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-US_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\en-US_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es-419.pak",
+        "Length":  580775,
+        "SHA256":  "4CB74C657BF94C756646B9FD96978FE7D180625AF10836314B9CD519618FC185"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es-419_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es-419_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es-419_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es.pak",
+        "Length":  578037,
+        "SHA256":  "F149F4A25F7F8B3389E61C1C139FD362E5CBFBF60D275D4190F78E0548731BB9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\es_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\et.pak",
+        "Length":  529289,
+        "SHA256":  "4F247241DF604ED57AB4B2B9B36003238EE0DAB1F8D35EE5368B5EDB24EF9469"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\et_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\et_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\et_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fa.pak",
+        "Length":  862877,
+        "SHA256":  "80943C0B1897C06C185D7684665266DF040570BD3BD6FEDA85329800580D63EC"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fa_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fa_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fa_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fi.pak",
+        "Length":  537063,
+        "SHA256":  "8A564F2444E514C9FAD085EBC956DA8B507CF3F21E2A2B8C279BE6A24863047E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fil.pak",
+        "Length":  608307,
+        "SHA256":  "3ADBE98670BE45C84F0C8D6A6D912AB86C391EB87C80BF3BF74319FE851F9471"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fil_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fil_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fil_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fi_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fi_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fi_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fr.pak",
+        "Length":  626773,
+        "SHA256":  "C038D29FF6F8071003A4BD364BC950550230E42D9C98E47724E2781D9FF2337A"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fr_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fr_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\fr_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\gu.pak",
+        "Length":  1224643,
+        "SHA256":  "5D149B81664318115E23891070ECD2EF944A5405AD28908A55E2207D5F03752C"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\gu_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\gu_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\gu_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\he.pak",
+        "Length":  759657,
+        "SHA256":  "F3300FC345A1F2BAF6DB1029C805C802AF3D404D7D0A35A595992584E40C6A88"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\he_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\he_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\he_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hi.pak",
+        "Length":  1307753,
+        "SHA256":  "48395C8F658B38F4A4342FB954E4543553EA3E34E930BC0992ABBC54A6F181DF"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hi_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hi_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hi_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hr.pak",
+        "Length":  584152,
+        "SHA256":  "BB2C14ADE2BA118E48861EC86354F220D0FBFB3C50E4FA58140B977CB7307E0A"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hr_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hr_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hr_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hu.pak",
+        "Length":  629963,
+        "SHA256":  "C451598580934FF2D05207511BE8138ADC3DE7B7F755CA81DA05FF5E5B10946F"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hu_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hu_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\hu_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\id.pak",
+        "Length":  519970,
+        "SHA256":  "86B43846BC53EA1F5008160F8D5C2914286B09B6F6F05EEDCB72937D029A3C8C"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\id_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\id_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\id_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\it.pak",
+        "Length":  577654,
+        "SHA256":  "2F3085411F7F634BD170BA2C7919F185881476EA15682C39AEEA30F32B51A655"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\it_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\it_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\it_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ja.pak",
+        "Length":  697433,
+        "SHA256":  "B13A1C38CD7299EB0802886AD16BC1EDBA8A0BF8A8CF7F546D12C6B9E962224E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ja_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ja_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ja_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\kn.pak",
+        "Length":  1390487,
+        "SHA256":  "DA1B172C31C252C15F364BA34E2E12E24718A557D2A08AFA253EA072BCA57BDF"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\kn_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\kn_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\kn_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ko.pak",
+        "Length":  590732,
+        "SHA256":  "58968769188AD4F14137AF27700A8CD2EC14376BD020FCE22C45A9F7A1585DB5"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ko_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ko_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ko_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lt.pak",
+        "Length":  630077,
+        "SHA256":  "C255CA15BC5554FE65D9328E1E22B7D7D07FA793551CD812D84F24D34C41D256"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lt_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lt_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lt_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lv.pak",
+        "Length":  629896,
+        "SHA256":  "630EC944479866DFEA472B6266ACC87AB1098F00BF290A8F6EEF3A5F1BD0DE67"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lv_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lv_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\lv_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ml.pak",
+        "Length":  1448588,
+        "SHA256":  "BF0DEE7F10204A30C6C1C740A48890A6FC9923FB6CFD4ADD8AF2DA39956BF9F5"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ml_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ml_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ml_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\mr.pak",
+        "Length":  1199231,
+        "SHA256":  "C2E6270B2217EB9D0095F14C8C6EEFEC1DD25E50BAB0D36318ED61012FC61ED2"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\mr_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\mr_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\mr_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ms.pak",
+        "Length":  545550,
+        "SHA256":  "F230843D238C30BE040A3B0FD99FC13A69AA8FF73E28900F7689057662AACD9D"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ms_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ms_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ms_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nb.pak",
+        "Length":  527479,
+        "SHA256":  "AA2C2684C4D1D0987F934457DC8373014C87DD997FFBB13C662EBB2FC6943CE6"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nb_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nb_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nb_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nl.pak",
+        "Length":  547449,
+        "SHA256":  "2866FBB4A941C723BC4778469CFB1BC2519BDF170CCB25FDD4BCAED4EE4560BA"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nl_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nl_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\nl_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pl.pak",
+        "Length":  606991,
+        "SHA256":  "3E8D533A4753B9E2DDB01A302A531821E9C1DBA3D000D62FC818E263A9D301B5"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pl_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pl_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pl_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-BR.pak",
+        "Length":  569016,
+        "SHA256":  "3431562B4EDD947E0E302BBA4973D9333CC09631FD4BD1D3710D75A6962D0AED"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-BR_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-BR_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-BR_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-PT.pak",
+        "Length":  574773,
+        "SHA256":  "82441C544C920DD15CBA841E9C35CFD7BD90C8AD51DF4BF93EECE6A26C7F3521"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-PT_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-PT_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\pt-PT_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ro.pak",
+        "Length":  594631,
+        "SHA256":  "D265AEE8F12632C8C9D61E6B0AD57A02064A4017DEC3CD8FF89D9070390D9097"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ro_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ro_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ro_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ru.pak",
+        "Length":  973548,
+        "SHA256":  "4DC3D40E59F2E15A5F883A82440210CDE60304C178C7CECF017D9207E7C52BA9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ru_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ru_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ru_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sk.pak",
+        "Length":  613463,
+        "SHA256":  "19B3AAE326CB7AAD82413C93DD31F092BC83B5F7E197B3431CF79CFC790ACEFA"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sk_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sk_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sk_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sl.pak",
+        "Length":  587420,
+        "SHA256":  "F2F23348A4C7298F80766BFC435DC899F3F8061D4C6AF34FA9B99D4C1DC23612"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sl_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sl_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sl_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sr.pak",
+        "Length":  904125,
+        "SHA256":  "9F9323CD65E09EF78F3520DE5421A1E25BE0D844A6DD9DF2E6B5A1531D607261"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sr_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sr_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sr_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sv.pak",
+        "Length":  530725,
+        "SHA256":  "C4CD05F68368360B2455E7355FC58066A174E96A4FA39CBFC51D226D99E72E37"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sv_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sv_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sv_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sw.pak",
+        "Length":  561399,
+        "SHA256":  "A6BC9EBCFE8346D3947E3E85DB7B5BE3BD8A94B4F1BB124869584C8ECA1EC7CD"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sw_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sw_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\sw_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ta.pak",
+        "Length":  1444574,
+        "SHA256":  "F5DB626B536FF4166A10DFB4D310F3243B0A8D41ADF6816CD016284662E3295E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ta_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ta_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ta_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\te.pak",
+        "Length":  1331393,
+        "SHA256":  "B2B0053D1EC88FEAF4EC06B67D3FE3C1801CD66C2A91E5DC71C98AB2415E81AA"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\te_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\te_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\te_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\th.pak",
+        "Length":  1121180,
+        "SHA256":  "871F34BCBD11098C3C757D29B857956854476EF64D531ED224ABC522A1C4E992"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\th_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\th_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\th_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\tr.pak",
+        "Length":  569857,
+        "SHA256":  "17632F23FE784126C6DD5B5203BCCE299E66434239D5B4A656480D82143F9167"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\tr_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\tr_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\tr_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\uk.pak",
+        "Length":  975362,
+        "SHA256":  "B8A30CDF596F563DEEF0065A64837FEB3BCBA94065EB6EEB5B828CBEBD43D460"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\uk_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\uk_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\uk_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ur.pak",
+        "Length":  854462,
+        "SHA256":  "13F81535343547DD97F29EC16CC3E4B371E17E33377A741A6E3F0E7811DA8D1D"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ur_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ur_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\ur_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\vi.pak",
+        "Length":  678980,
+        "SHA256":  "D517968C33E0C431D528E5331DB34B90C4B3E934457535805C24B875960176FF"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\vi_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\vi_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\vi_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-CN.pak",
+        "Length":  486250,
+        "SHA256":  "65731055C1B49E1E8670ACF4ED60283E277099029F018678D9627AFD52813765"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-CN_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-CN_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-CN_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-TW.pak",
+        "Length":  481895,
+        "SHA256":  "89747944B592C8619D971BF8FFD7D7560B0A154168D4A4EB14808A23BDCCDE42"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-TW_FEMININE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-TW_MASCULINE.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\locales\\zh-TW_NEUTER.pak",
+        "Length":  18,
+        "SHA256":  "CA73097BD968B363B7145E86B64F3C595E533808B0763DC8863A27FC363CFA51"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\MEIPreload\\manifest.json",
+        "Length":  238,
+        "SHA256":  "44844CF3DDE6E80087AE0E6BF0D9326D7EF7D23326D24AC83AF0850BE26923D2"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\MEIPreload\\preloaded_data.pb",
+        "Length":  8254,
+        "SHA256":  "C6070A157B4E28D16FBCCBD233E93846DDB070C85E1A1BC64469B7A5F1424FAD"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\PrivacySandboxAttestationsPreloaded\\manifest.json",
+        "Length":  122,
+        "SHA256":  "51C311A4BA03140BCD1C827F8D93DBA50CADDA736925903B26E95609275DBFFD"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium-1187\\chrome-win\\PrivacySandboxAttestationsPreloaded\\privacy-sandbox-attestations.dat",
+        "Length":  7624,
+        "SHA256":  "59E345DC13AEDEE9EA46B92E58300ECACA944AAEA9384C7AF885400AC2AE8806"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\DEPENDENCIES_VALIDATED",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\INSTALLATION_COMPLETE",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\headless_command_resources.pak",
+        "Length":  2923,
+        "SHA256":  "ACA30032B9E866773E938A2651173B6AD66FBB993FA828481E4B3B820DE3AEF2"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\headless_lib_data.pak",
+        "Length":  794219,
+        "SHA256":  "0E717C4042C98E7DD022109074270C8F9AEAE70971BADABCD554184DE506232E"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\headless_lib_strings.pak",
+        "Length":  3766151,
+        "SHA256":  "DE8B7544BAB9AB4E28F0893BFD2969035131295778673CBA109F82278DE79B2C"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\headless_shell.exe",
+        "Length":  181891072,
+        "SHA256":  "4AD17D846D2C651F029450475576D349F8D5BCACE2FE430969D2D4084EFF0CD1"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\icudtl.dat",
+        "Length":  10467680,
+        "SHA256":  "5070DE99FBD8A48378543511FB7A072F85BF36F94B4F4E1D420D54BE1435D6F1"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\libEGL.dll",
+        "Length":  503296,
+        "SHA256":  "97BEB4E8014A5636CA28D450E75919BFB14BD2E74A63E55E49308546C8B15982"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\libGLESv2.dll",
+        "Length":  7946240,
+        "SHA256":  "B752A66F5225BC963EDEF49BF3A73BE98F0B75A6C412FBB1B1EA44E77E7F7BBE"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\v8_context_snapshot.bin",
+        "Length":  712173,
+        "SHA256":  "0E64A89A7D21A71BE706C9DAD49EC6EDA9A478232951586220BA98A64BA74333"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\vk_swiftshader.dll",
+        "Length":  5388288,
+        "SHA256":  "17A414A8E731B859034178B2E41A2C7A57DE8F2FA6EFEAAA3432B9DF2E21DEF5"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\vk_swiftshader_icd.json",
+        "Length":  106,
+        "SHA256":  "32D83FF113FEF532A9F97E0D2831F8656628AB1C99E9060F0332B1532839AFD9"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\vulkan-1.dll",
+        "Length":  919040,
+        "SHA256":  "830607DEC25EF24BA0F9B22E83EBDC6591B1DA345062B8F6704D13A5C090F415"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\resources\\inspector_overlay\\inspector_overlay_resources.grd",
+        "Length":  496,
+        "SHA256":  "5BBD199200F04F0D8D5866CA4FAF215CDD49376B8698AC18183AE50046B79F30"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\chromium_headless_shell-1187\\chrome-win\\resources\\inspector_overlay\\main.js",
+        "Length":  77303,
+        "SHA256":  "845002084FD78CAC7B2290A2EF2736FB302D0FBD5F910107ACCF13A5411B5617"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\ffmpeg-1011\\COPYING.LGPLv2.1",
+        "Length":  26526,
+        "SHA256":  "B634AB5640E258563C536E658CAD87080553DF6F34F62269A21D554844E58BFE"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\ffmpeg-1011\\DEPENDENCIES_VALIDATED",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\ffmpeg-1011\\ffmpeg-win64.exe",
+        "Length":  3490816,
+        "SHA256":  "5B8F3F59BA61685828939FF3C833109748ADBDEA2FFF4B4AE570C9FC0FC1FF4D"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\ffmpeg-1011\\INSTALLATION_COMPLETE",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\winldd-1007\\DEPENDENCIES_VALIDATED",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\winldd-1007\\INSTALLATION_COMPLETE",
+        "Length":  0,
+        "SHA256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+        "Path":  "vendor\\playwright-browsers\\winldd-1007\\PrintDeps.exe",
+        "Length":  258560,
+        "SHA256":  "020BAC54C953C65A0940B314C8AFADD2854DE2D83125E7B1393054FAFD21F330"
+    }
+]

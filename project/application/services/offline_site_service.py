@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
-import re, shutil, stat, threading, time
+import os, re, shutil, stat, threading, time
 from typing import Any, Iterator
 from urllib.parse import urlparse
 from zipfile import BadZipFile, ZipFile
@@ -20,6 +20,19 @@ class SiteLimits:
     max_states:int=60; timeout_seconds:int=60
 
 class UnsafeSitePackage(ValueError): pass
+
+def playwright_health(browser_path:Path|None=None)->dict[str,Any]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError: return {"status":"python_package_missing","available":False,"repair":"离线安装 requirements-playwright.txt"}
+    if browser_path is not None: os.environ["PLAYWRIGHT_BROWSERS_PATH"]=str(browser_path.resolve())
+    try:
+        with sync_playwright() as pw:
+            executable=Path(pw.chromium.executable_path)
+            if not executable.exists(): return {"status":"chromium_missing","available":False,"executable":str(executable),"repair":"运行 scripts/install-playwright-offline.ps1"}
+            browser=pw.chromium.launch(headless=True); version=browser.version; browser.close()
+        return {"status":"available","available":True,"executable":str(executable),"chromium_version":version}
+    except Exception as exc: return {"status":"launch_failed","available":False,"error":f"{type(exc).__name__}: {exc}"}
 
 def safe_extract_zip(content:bytes,target:Path,limits:SiteLimits=SiteLimits())->list[Path]:
     if len(content)>limits.upload_bytes: raise UnsafeSitePackage("ZIP超过上传大小限制")
@@ -83,13 +96,23 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
             host=(urlparse(route.request.url).hostname or "").lower()
             if host not in {"127.0.0.1","localhost"}: blocked.append(route.request.url); route.abort("blockedbyclient")
             else: route.continue_()
-        context.route("**/*",route_handler); page=context.new_page(); page.on("console",lambda msg:console.append({"type":msg.type,"text":msg.text})); page.on("dialog",lambda dialog:(events.append({"type":"dialog","message":dialog.message}),dialog.dismiss()))
+        context.route("**/*",route_handler); page=context.new_page(); popups=[]; dialogs=[]
+        page.on("console",lambda msg:console.append({"type":msg.type,"text":msg.text})); page.on("popup",lambda popup:popups.append(popup.url)); page.on("dialog",lambda dialog:(dialogs.append({"type":dialog.type,"message":dialog.message}),dialog.dismiss()))
         page.goto(f"{base}/{entry}",wait_until="domcontentloaded")
         for index,action in enumerate(plan[:limits.actions_per_page]):
             if time.monotonic()-started>limits.timeout_seconds or states>=limits.max_states: break
-            kind=action.get("action"); locator=action.get("locator","")
+            kind=action.get("action"); semantic=action.get("target") or {}; locator=action.get("locator",""); reason="explicit_debug_locator"
             if kind in {"delete","logout","download","external"}: events.append({"type":"blocked_action","action":action}); continue
-            before={"url":page.url,"text":page.locator("body").inner_text()[:10000],"html":page.content()[:50000]}; before_path=evidence_dir/f"{index:03d}-before.png"; page.screenshot(path=str(before_path),full_page=True); target=page.locator(locator).first
+            before={"url":page.url,"text":page.locator("body").inner_text()[:10000],"html":page.content()[:50000]}; before_path=evidence_dir/f"{index:03d}-before.png"; page.screenshot(path=str(before_path),full_page=True)
+            if semantic:
+                candidates=[]; accessible=str(semantic.get("accessible_name") or ""); role=str(semantic.get("role") or "")
+                if role and accessible: candidates.append((page.get_by_role(role,name=accessible,exact=True),"get_by_role"))
+                if accessible: candidates.extend([(page.get_by_label(accessible,exact=True),"get_by_label"),(page.get_by_placeholder(accessible,exact=True),"get_by_placeholder"),(page.get_by_text(accessible,exact=True),"get_by_text")])
+                resolved=next(((candidate,why) for candidate,why in candidates if candidate.count()==1),None)
+                if not resolved: events.append({"action_id":f"ACT-{index+1}","type":"ambiguous_target","semantic_target":semantic,"candidate_count":max([x.count() for x,_ in candidates] or [0]),"success":False,"failure_reason":"语义定位结果不是唯一元素","expected_source":"html_observed"}); continue
+                target,reason=resolved; locator=reason+":"+accessible
+            else: target=page.locator(locator)
+            if target.count()!=1: events.append({"action_id":f"ACT-{index+1}","type":"ambiguous_target","semantic_target":semantic,"candidate_count":target.count(),"success":False,"failure_reason":"定位结果不是唯一元素","expected_source":"html_observed"}); continue
             if kind=="click": target.click()
             elif kind=="input": target.fill(str(action.get("value","")))
             elif kind=="select": target.select_option(str(action.get("value","")))
@@ -98,5 +121,21 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
             else: events.append({"type":"unsupported_action","action":action}); continue
             page.wait_for_timeout(100); after={"url":page.url,"text":page.locator("body").inner_text()[:10000],"html":page.content()[:50000]}; after_path=evidence_dir/f"{index:03d}-after.png"; page.screenshot(path=str(after_path),full_page=True)
             boxes=page.locator("input,button,select,textarea,a").evaluate_all("els=>els.map(e=>{const r=e.getBoundingClientRect();return {tag:e.tagName.toLowerCase(),id:e.id,text:e.innerText||e.value||'',disabled:!!e.disabled,checked:!!e.checked,box:{x:r.x,y:r.y,width:r.width,height:r.height}}})")
-            events.append({"type":"interaction","action":action,"before":before,"after":after,"changed":before!=after,"controls":boxes,"before_screenshot":str(before_path),"after_screenshot":str(after_path),"expected_source":"html_observed"}); states+=2
+            events.append({"action_id":f"ACT-{index+1}","page_id":entry,"type":"interaction","action":kind,"semantic_target":semantic,"final_locator":locator,"locator_reason":reason,"purpose":action.get("purpose",""),"before_dom_summary":before["html"],"after_dom_summary":after["html"],"url_before":before["url"],"url_after":after["url"],"visible_text_before":before["text"],"visible_text_after":after["text"],"dialogs":list(dialogs),"new_windows":list(popups),"changed":before!=after,"controls":boxes,"before_screenshot":str(before_path),"after_screenshot":str(after_path),"success":True,"failure_reason":"","expected_source":"html_observed"}); dialogs.clear(); popups.clear(); states+=2
         result={"entry":entry,"final_url":page.url,"visible_text":page.locator("body").inner_text()[:20000],"events":events,"console_errors":[x for x in console if x["type"]=="error"],"blocked_requests":blocked,"elapsed_seconds":round(time.monotonic()-started,3),"limits":asdict(limits)}; browser.close(); return result
+
+def automatic_safe_plan(root:Path,entry:str,limits:SiteLimits=SiteLimits())->list[dict[str,Any]]:
+    """Create a conservative semantic plan; users never provide locators or actions."""
+    page_path=(root/entry).resolve(); _,elements=parse_offline_html(page_path.read_bytes(),entry); plan=[]
+    dangerous=("删除","发布","退出","下载","清空","提交")
+    for element in elements:
+        name=element.label or element.attributes.get("aria-label") or element.attributes.get("placeholder") or element.text
+        if not name or any(word in name for word in dangerous) or not element.visible or not element.enabled: continue
+        role=element.attributes.get("role") or ({"button":"button","a":"link","select":"combobox","textarea":"textbox"}.get(element.tag) or ("textbox" if element.tag=="input" else ""))
+        if element.tag in {"input","textarea"}: action={"action":"input","value":"自动探索测试数据"}
+        elif element.tag=="select" and element.options: action={"action":"select","value":element.options[0]}
+        elif element.tag in {"button","a"}: action={"action":"click"}
+        else: continue
+        action.update({"target":{"role":role,"accessible_name":name,"region":element.semantic_position},"purpose":"获取与需求相关的本地页面观测"}); plan.append(action)
+        if len(plan)>=limits.actions_per_page: break
+    return plan

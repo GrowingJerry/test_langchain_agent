@@ -8,7 +8,7 @@ from typing import Dict
 
 from infrastructure.database.connection import SQLiteConnectionManager
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 18
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -375,6 +375,19 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
                 relation_json TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(project_id,site_package_id,relation_id),
                 FOREIGN KEY(project_id,site_package_id) REFERENCES site_packages(project_id,site_package_id)
             );
+            CREATE TABLE IF NOT EXISTS requirement_page_links (
+                project_id TEXT NOT NULL, link_id TEXT NOT NULL, function_id TEXT NOT NULL, page_id TEXT,
+                confidence REAL NOT NULL DEFAULT 0, reason TEXT, status TEXT NOT NULL DEFAULT 'proposed',
+                need_human_confirm INTEGER NOT NULL DEFAULT 1, model_name TEXT, evidence_json TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY(project_id,link_id), FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS indicator_action_links (
+                project_id TEXT NOT NULL, indicator_id TEXT NOT NULL, observation_id TEXT NOT NULL, action_id TEXT,
+                PRIMARY KEY(project_id,indicator_id,observation_id,action_id), FOREIGN KEY(project_id) REFERENCES projects(project_id)
+            );
+            CREATE TABLE IF NOT EXISTS case_page_links (project_id TEXT NOT NULL,case_id TEXT NOT NULL,page_id TEXT NOT NULL,PRIMARY KEY(project_id,case_id,page_id));
+            CREATE TABLE IF NOT EXISTS case_element_links (project_id TEXT NOT NULL,case_id TEXT NOT NULL,element_id TEXT NOT NULL,PRIMARY KEY(project_id,case_id,element_id));
+            CREATE TABLE IF NOT EXISTS case_observation_links (project_id TEXT NOT NULL,case_id TEXT NOT NULL,observation_id TEXT NOT NULL,PRIMARY KEY(project_id,case_id,observation_id));
             CREATE TABLE IF NOT EXISTS equipment_import_errors (
                 error_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_file TEXT NOT NULL,
                 source_line_no INTEGER NOT NULL, error_type TEXT NOT NULL, error_message TEXT NOT NULL,
@@ -384,6 +397,15 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
             """
         )
         cursor = conn.cursor()
+        _ensure_columns(
+            cursor, "requirement_nodes", {
+                "section_number": "TEXT NOT NULL DEFAULT ''",
+                "ancestor_node_ids_json": "TEXT NOT NULL DEFAULT '[]'", "ancestor_identifiers_json": "TEXT NOT NULL DEFAULT '[]'",
+                "node_type": "TEXT NOT NULL DEFAULT 'group'", "source_position_json": "TEXT NOT NULL DEFAULT '{}'",
+                "section_evidence_json": "TEXT NOT NULL DEFAULT '{}'", "overview_node_id": "TEXT NOT NULL DEFAULT ''",
+                "testable": "INTEGER NOT NULL DEFAULT 0", "review_status": "TEXT NOT NULL DEFAULT 'pending'"
+            }
+        )
         _ensure_columns(
             cursor, "html_pages", {"site_package_id": "TEXT NOT NULL DEFAULT ''"}
         )

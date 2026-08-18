@@ -39,3 +39,4 @@ project/outputs/
 .coverage
 htmlcov/
 wheelhouse/
+project/vendor/playwright-browsers/

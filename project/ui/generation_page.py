@@ -333,7 +333,10 @@ def _scenario_mode(service: Any, project_id: str, case_library: Any, config: dic
 
 def _requirement_mode(service: Any, project_id: str, case_library: Any, config: dict[str, Any]) -> None:
     st.caption("本页只负责生成；文档上传、结构增强和需求审核统一在“资料与需求”完成。")
-    requirements = service.list_requirements(project_id)
+    requirements = [
+        row for row in service.list_requirements(project_id)
+        if row.get("retained", True)
+    ]
     if not requirements:
         st.info("尚无已确认需求。请先进入“资料与需求 → 3. 需求审核”。")
         return

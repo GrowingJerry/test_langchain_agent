@@ -12,6 +12,10 @@ def _chat(settings,prompt):
             response=requests.post(settings.ollama_base_url.rstrip("/")+"/api/chat",json={"model":settings.ollama_model,"stream":False,"think":False,"format":schema,"messages":[{"role":"user","content":prompt+correction}],"options":{"temperature":0,"num_predict":2400,"num_ctx":settings.ollama_num_ctx}},timeout=settings.ollama_timeout); response.raise_for_status(); data=json.loads(response.json()["message"]["content"])
             if len(data.get("cases",[]))<4: raise ValueError("用例少于4条")
             for case in data["cases"]: validate_step_alignment(case)
+            required={"IND-VIEW","IND-NAME","IND-MOBILE","IND-EMAIL","IND-SAVE","IND-TIP"}
+            covered={item for case in data["cases"] for item in case.get("indicator_ids",[])}
+            if not required.issubset(covered):
+                raise ValueError("missing atomic requirement coverage: "+",".join(sorted(required-covered)))
             return data,response.json()["model"]
         except Exception as exc:
             last=exc; correction="\n上次输出未通过校验："+str(exc)+"。每条用例的steps与expected必须数量完全相等，请逐条重新检查并输出完整JSON。"

@@ -20,9 +20,16 @@ class RequirementNode(BaseModel):
     parent_id: str = ""
     section_number: str = ""
     hierarchy_path: list[str] = Field(default_factory=list)
+    ancestor_node_ids: list[str] = Field(default_factory=list)
+    ancestor_identifiers: list[str] = Field(default_factory=list)
+    node_type: str = "group"
     source_document: str = ""
     source_block_id: str = ""
+    source_position: dict[str, Any] = Field(default_factory=dict)
     sections: dict[str, str] = Field(default_factory=dict)
+    section_evidence: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    overview_node_id: str = ""
+    testable: bool = False
     need_human_confirm: bool = False
 
 
@@ -44,6 +51,10 @@ class RequirementIndicator(BaseModel):
     exception_rules: list[str] = Field(default_factory=list)
     verification_scope: str = "offline"
     need_human_confirm: bool = False
+    mandatory_coverage: bool = True
+    constraint_for: list[str] = Field(default_factory=list)
+    evidence_spans: list[str] = Field(default_factory=list)
+    audit_status: str = "pending"
 
 
 class HtmlElement(BaseModel):
@@ -76,4 +87,3 @@ class CoveragePlanItem(BaseModel):
     offline_verifiable: bool = True
     need_human_confirm: bool = False
     planned_case_count: int = 1
-

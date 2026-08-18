@@ -568,14 +568,15 @@ class UIApplicationService:
         return build_project_export_rows(self.manager, project_id)
 
     def analyze_csci_docx(self, project_id: str, path: Path) -> Dict[str, Any]:
-        from application.services.traceability_service import atomic_indicators, parse_csci_docx
+        from application.services.csci_document_service import parse_formal_csci_docx
+        from application.services.traceability_service import atomic_indicators
         from infrastructure.database.json_codec import dumps_json
-        nodes = parse_csci_docx(path)
-        indicators = [item for node in nodes for item in atomic_indicators(node)]
+        parsed=parse_formal_csci_docx(path); nodes=parsed["nodes"]
+        indicators = [item for node in parsed["testable_nodes"] for item in atomic_indicators(node)]
         with self.manager.connections.transaction() as conn:
             for node in nodes:
-                conn.execute("INSERT OR REPLACE INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (project_id,node.node_id,node.parent_id,node.identifier,node.name,node.level,dumps_json(node.hierarchy_path),dumps_json(node.sections),node.source_document,node.source_block_id,int(node.identifier_generated),int(node.need_human_confirm)))
+                conn.execute("INSERT OR REPLACE INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm,ancestor_node_ids_json,ancestor_identifiers_json,node_type,source_position_json,section_evidence_json,overview_node_id,testable) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (project_id,node.node_id,node.parent_id,node.identifier,node.name,node.level,dumps_json(node.hierarchy_path),dumps_json(node.sections),node.source_document,node.source_block_id,int(node.identifier_generated),int(node.need_human_confirm),dumps_json(node.ancestor_node_ids),dumps_json(node.ancestor_identifiers),node.node_type,dumps_json(node.source_position),dumps_json(node.section_evidence),node.overview_node_id,int(node.testable)))
             for item in indicators:
                 conn.execute("INSERT OR REPLACE INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,
@@ -612,9 +613,78 @@ class UIApplicationService:
                 "parent_requirement_ids": [node.parent_id] if node.parent_id else [],
                 "need_human_confirm": bool(node.need_human_confirm),
                 "missing_information": [],
-                "retained": True,
+                "retained": bool(node.testable),
             })
-        return {"nodes":[x.model_dump(mode="json") for x in nodes],"indicators":[x.model_dump(mode="json") for x in indicators]}
+        return {"nodes":[x.model_dump(mode="json") for x in nodes],"overview_nodes":[x.model_dump(mode="json") for x in parsed["overview_nodes"]],"testable_nodes":[x.model_dump(mode="json") for x in parsed["testable_nodes"]],"indicators":[x.model_dump(mode="json") for x in indicators]}
+
+    def atomize_and_audit_requirements(self, project_id: str) -> Dict[str, Any]:
+        from application.services.requirement_atomization_service import atomize_and_audit
+        from domain.schemas.traceability import RequirementNode
+        from infrastructure.database.json_codec import dumps_json, loads_json
+        with self.manager.connections.connection() as conn:
+            rows=[dict(x) for x in conn.execute("SELECT * FROM requirement_nodes WHERE project_id=? ORDER BY level,source_block_id",(project_id,))]
+        nodes=[]
+        for row in rows:
+            if not row.get("testable"): continue
+            nodes.append(RequirementNode(node_id=row["node_id"],name=row["name"],identifier=row["identifier"],identifier_generated=bool(row["identifier_generated"]),level=row["level"],parent_id=row.get("parent_id") or "",section_number=row.get("section_number") or "",hierarchy_path=loads_json(row.get("hierarchy_path_json"),[]),ancestor_node_ids=loads_json(row.get("ancestor_node_ids_json"),[]),ancestor_identifiers=loads_json(row.get("ancestor_identifiers_json"),[]),node_type=row.get("node_type") or "function",source_document=row.get("source_document") or "",source_block_id=row.get("source_block_id") or "",source_position=loads_json(row.get("source_position_json"),{}),sections=loads_json(row.get("sections_json"),{}),section_evidence=loads_json(row.get("section_evidence_json"),{}),overview_node_id=row.get("overview_node_id") or "",testable=True))
+        results=[]
+        with self.manager.connections.transaction() as conn:
+            for node in nodes:
+                overview=""
+                if node.overview_node_id:
+                    overview_row=conn.execute("SELECT sections_json FROM requirement_nodes WHERE project_id=? AND node_id=?",(project_id,node.overview_node_id)).fetchone()
+                    if overview_row: overview=str(loads_json(overview_row[0],{}).get("总体需求概述", ""))
+                result=atomize_and_audit(node,overview,self.settings); results.append({"function_id":node.identifier,"coverage_complete":result["coverage_complete"],"coverage_score":result["coverage_score"],"model_audit":result["model_audit"],"deterministic_audit":result["deterministic_audit"]})
+                conn.execute("DELETE FROM requirement_indicators WHERE project_id=? AND function_id=?",(project_id,node.identifier))
+                for item in result["atoms"]:
+                    conn.execute("INSERT INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,dumps_json({"section":item.source_section,"block_id":item.source_block_id,"source_text":item.source_text,"evidence_spans":item.evidence_spans,"mandatory_coverage":True}),dumps_json({"inputs":item.input_constraints,"processing":item.processing_rules,"expected":item.expected_behavior}),item.verification_scope,int(item.need_human_confirm)))
+                conn.execute("UPDATE requirement_nodes SET review_status=? WHERE project_id=? AND node_id=?",("passed" if result["coverage_complete"] else "pending",project_id,node.node_id))
+        return {"functions":results,"coverage_complete":all(x["coverage_complete"] for x in results) if results else False}
+
+    def save_reviewed_atoms(self, project_id: str, rows: List[Dict[str, Any]]) -> None:
+        from hashlib import sha256
+        from infrastructure.database.json_codec import dumps_json
+        with self.manager.connections.transaction() as conn:
+            existing={x["indicator_id"]:dict(x) for x in conn.execute("SELECT * FROM requirement_indicators WHERE project_id=?",(project_id,))}
+            retained=set()
+            for row in rows:
+                indicator_id=str(row.get("indicator_id") or "").strip()
+                if not indicator_id:
+                    function_id=str(row.get("function_id") or "").strip()
+                    text=str(row.get("indicator_text") or "").strip()
+                    if not function_id or not text:
+                        continue
+                    valid=conn.execute("SELECT 1 FROM requirement_nodes WHERE project_id=? AND identifier=? AND testable=1",(project_id,function_id)).fetchone()
+                    if not valid:
+                        continue
+                    indicator_id="HUMAN-"+sha256((project_id+function_id+text).encode("utf-8")).hexdigest()[:16].upper()
+                    conn.execute("INSERT INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,0)",(project_id,indicator_id,function_id,function_id,"",text,str(row.get("indicator_type") or "其他"),dumps_json({"review_source":"human_added","mandatory_coverage":True}),dumps_json({}),str(row.get("verification_scope") or "offline_verifiable")))
+                    retained.add(indicator_id)
+                    continue
+                if indicator_id not in existing: continue
+                retained.add(indicator_id); conn.execute("UPDATE requirement_indicators SET indicator_text=?,indicator_type=?,need_human_confirm=0 WHERE project_id=? AND indicator_id=?",(str(row.get("indicator_text") or "").strip(),str(row.get("indicator_type") or "其他"),project_id,indicator_id))
+            for indicator_id in set(existing)-retained: conn.execute("DELETE FROM requirement_indicators WHERE project_id=? AND indicator_id=?",(project_id,indicator_id))
+            conn.execute("UPDATE requirement_nodes SET review_status='human_confirmed' WHERE project_id=? AND testable=1",(project_id,))
+
+    def save_binding_reviews(self, project_id: str, rows: List[Dict[str, Any]]) -> None:
+        """Confirm or revise semantic binding rows without exposing locator syntax."""
+        with self.manager.connections.transaction() as conn:
+            valid_pages={row[0] for row in conn.execute("SELECT page_id FROM html_pages WHERE project_id=?",(project_id,))}
+            valid_elements={row[0]:row[1] for row in conn.execute("SELECT element_id,page_id FROM html_elements WHERE project_id=?",(project_id,))}
+            for row in rows:
+                kind=str(row.get("binding_type") or "page")
+                link_id=str(row.get("link_id") or "")
+                page_id=str(row.get("page_id") or "")
+                element_id=str(row.get("confirmed_element_id") or "")
+                confirmed=bool(row.get("confirmed"))
+                if not link_id or page_id not in valid_pages:
+                    continue
+                if kind == "element":
+                    if element_id and valid_elements.get(element_id) != page_id:
+                        continue
+                    conn.execute("UPDATE requirement_element_links SET page_id=?,confirmed_element_id=?,status=?,need_human_confirm=? WHERE project_id=? AND link_id=?",(page_id,element_id,"confirmed" if confirmed and element_id else "proposed",0 if confirmed and element_id else 1,project_id,link_id))
+                else:
+                    conn.execute("UPDATE requirement_page_links SET page_id=?,status=?,need_human_confirm=? WHERE project_id=? AND link_id=?",(page_id,"confirmed" if confirmed else "proposed",0 if confirmed else 1,project_id,link_id))
 
     def analyze_offline_html(self, project_id: str, filename: str, content: bytes) -> Dict[str, Any]:
         from application.services.traceability_service import parse_offline_html
@@ -655,9 +725,70 @@ class UIApplicationService:
             conn.execute("INSERT INTO html_observations(project_id,observation_id,page_id,action,result_json,site_package_id,evidence_json) VALUES(?,?,?,?,?,?,?)",(project_id,f"OBS-{__import__('uuid').uuid4().hex[:16]}",entry,"bounded_plan",dumps_json(result),site_package_id,dumps_json({"screenshots":[x.get("after_screenshot") for x in result["events"] if x.get("after_screenshot")]})))
         return result
 
+    def playwright_status(self) -> Dict[str, Any]:
+        from application.services.offline_site_service import playwright_health
+        return playwright_health(Path(__file__).resolve().parents[2] / "vendor" / "playwright-browsers")
+
+    def auto_explore_site_package(self, project_id: str, site_package_id: str, entry: str) -> Dict[str, Any]:
+        from application.services.offline_site_service import automatic_safe_plan
+        from urllib.parse import urlparse
+        with self.manager.connections.connection() as conn:
+            row=conn.execute("SELECT root_path FROM site_packages WHERE project_id=? AND site_package_id=?",(project_id,site_package_id)).fetchone()
+        if not row: raise KeyError("当前项目中不存在该站点包")
+        plan=automatic_safe_plan(Path(row["root_path"]),entry)
+        if not plan: return {"entry":entry,"events":[],"status":"needs_human_confirmation","reason":"未找到唯一且安全的语义操作目标"}
+        result=self.explore_site_package(project_id,site_package_id,entry,plan); result["semantic_plan_size"]=len(plan)
+        next_entry=urlparse(result.get("final_url","")).path.lstrip("/")
+        if next_entry and next_entry!=entry and (Path(row["root_path"])/next_entry).is_file():
+            next_plan=automatic_safe_plan(Path(row["root_path"]),next_entry)
+            if next_plan:
+                second=self.explore_site_package(project_id,site_package_id,next_entry,next_plan)
+                result["events"].extend(second.get("events",[])); result["blocked_requests"].extend(second.get("blocked_requests",[])); result["final_url"]=second.get("final_url",result.get("final_url")); result["semantic_plan_size"]+=len(next_plan)
+        return result
+
+    def auto_bind_requirements(self, project_id: str) -> Dict[str, Any]:
+        from application.services.semantic_binding_service import bind_project
+        visual=self.understand_pages_visually(project_id)
+        result=bind_project(self.manager,project_id,self.settings); result["visual_understanding"]=visual; return result
+
+    def understand_pages_visually(self, project_id: str) -> Dict[str, Any]:
+        from infrastructure.database.json_codec import dumps_json, loads_json
+        client=OllamaVisualClient(base_url=self.settings.ollama_base_url,model=self.settings.page_understanding_model,timeout=self.settings.ollama_vision_timeout)
+        with self.manager.connections.connection() as conn:
+            observations=[dict(x) for x in conn.execute("SELECT * FROM html_observations WHERE project_id=? ORDER BY observed_at DESC",(project_id,))]
+            nodes=[dict(x) for x in conn.execute("SELECT identifier,name,hierarchy_path_json,sections_json FROM requirement_nodes WHERE project_id=? AND testable=1",(project_id,))]
+        screenshots=[]
+        for row in observations:
+            evidence=loads_json(row.get("evidence_json"),{}); screenshots.extend(x for x in evidence.get("screenshots",[]) if x and Path(x).is_file())
+        if not screenshots: return {"status":"no_screenshot","model":self.settings.page_understanding_model,"results":[]}
+        prompt="分析离线页面截图。结合需求、可见页面结构，输出JSON：page_purpose、regions、function_candidates、control_candidates、confidence、reason、next_safe_targets。视觉仅作辅助，不得编造DOM元素。需求："+dumps_json([{"identifier":x["identifier"],"name":x["name"],"hierarchy":loads_json(x["hierarchy_path_json"],[]),"sections":loads_json(x["sections_json"],{})} for x in nodes])
+        response=client.generate_json_with_images(prompt,image_paths=[screenshots[-1]])
+        if not response.get("ok"): return {"status":"failed","model":self.settings.page_understanding_model,"error":response.get("error","")}
+        data=response.get("data") or {}; observation_id=f"VIS-{__import__('uuid').uuid4().hex[:16]}"
+        with self.manager.connections.transaction() as conn:
+            conn.execute("INSERT INTO html_observations(project_id,observation_id,page_id,action,result_json,evidence_json) VALUES(?,?,?,?,?,?)",(project_id,observation_id,"","page_understanding",dumps_json({"model":self.settings.page_understanding_model,"visual_result":data,"expected_source":"html_observed"}),dumps_json({"screenshot":screenshots[-1]})))
+        return {"status":"completed","model":self.settings.page_understanding_model,"observation_id":observation_id,"result":data}
+
+    def workflow_status(self, project_id: str) -> Dict[str, Any]:
+        with self.manager.connections.connection() as conn:
+            scalar=lambda sql: conn.execute(sql,(project_id,)).fetchone()[0]
+            nodes=scalar("SELECT count(*) FROM requirement_nodes WHERE project_id=?")
+            testable=scalar("SELECT count(*) FROM requirement_nodes WHERE project_id=? AND testable=1")
+            atoms=scalar("SELECT count(*) FROM requirement_indicators WHERE project_id=?")
+            reviewed=scalar("SELECT count(*) FROM requirement_nodes WHERE project_id=? AND testable=1 AND review_status IN ('passed','human_confirmed')")
+            pages=scalar("SELECT count(*) FROM html_pages WHERE project_id=?")
+            observations=scalar("SELECT count(*) FROM html_observations WHERE project_id=?")
+            bindings=scalar("SELECT count(*) FROM requirement_page_links WHERE project_id=? AND status='confirmed'")
+            pending=scalar("SELECT count(*) FROM requirement_page_links WHERE project_id=? AND need_human_confirm=1")+scalar("SELECT count(*) FROM requirement_element_links WHERE project_id=? AND need_human_confirm=1")
+            covered=scalar("SELECT count(DISTINCT indicator_id) FROM case_indicator_links WHERE project_id=?")
+            online=scalar("SELECT count(*) FROM requirement_indicators WHERE project_id=? AND verification_scope='online_required'")
+            packages=scalar("SELECT count(*) FROM site_packages WHERE project_id=?")
+        cases=len(self.manager.list_generated_cases(project_id)); total=max(1,atoms)
+        return {"document_uploaded":bool(self.manager.list_documents(project_id)),"section_32_identified":bool(nodes),"section_33_identified":bool(nodes),"lowest_function_count":testable,"atom_count":atoms,"atom_review_passed":bool(testable and reviewed==testable),"html_uploaded":bool(packages or pages),"page_count":pages,"playwright":self.playwright_status(),"exploration_completed":bool(observations),"binding_completion":round(bindings/max(1,testable),4),"pending_confirmation":pending,"case_count":cases,"atomic_coverage_rate":round(covered/total,4),"online_required":online,"reviewed":bool(self.manager.list_review_results(project_id)),"exported":any((self.manager.project_dir(project_id)/"exports").iterdir()) if (self.manager.project_dir(project_id)/"exports").exists() else False}
+
     def traceability_rows(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]:
         rows = self.export_rows(project_id)
-        keys = ("requirement_hierarchy","atomic_requirements","html_elements","requirement_element_links","atomic_coverage_matrix","case_version_history")
+        keys = ("requirement_hierarchy","atomic_requirements","html_elements","requirement_page_links","requirement_element_links","atomic_coverage_matrix","case_version_history")
         return {key: rows[key] for key in keys}
 
     def case_regeneration_context(self, project_id: str, case_id: str) -> Dict[str, Any]:

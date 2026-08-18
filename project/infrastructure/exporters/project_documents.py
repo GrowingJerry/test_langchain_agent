@@ -202,13 +202,19 @@ def build_project_export_rows(
         with manager.connections.connection() as conn:
             return [dict(row) for row in conn.execute(sql, (project_id,)).fetchall()]
 
-    requirement_nodes = scoped_rows("SELECT identifier,name,level,parent_id,hierarchy_path_json,sections_json,source_document,need_human_confirm FROM requirement_nodes WHERE project_id=? ORDER BY level,name")
+    requirement_nodes = scoped_rows("SELECT section_number,identifier,name,level,parent_id,ancestor_identifiers_json,hierarchy_path_json,node_type,sections_json,source_document,source_position_json,section_evidence_json,overview_node_id,testable,review_status,need_human_confirm FROM requirement_nodes WHERE project_id=? ORDER BY source_block_id")
+    lowest_nodes=[row for row in requirement_nodes if row.get("testable")]
+    constraints=[{"identifier":row.get("identifier"),"输入/处理/输出":row.get("sections_json"),"证据":row.get("section_evidence_json")} for row in lowest_nodes]
     indicators = scoped_rows("SELECT indicator_id,capability_id,function_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm FROM requirement_indicators WHERE project_id=? ORDER BY function_id,indicator_id")
     html_elements = scoped_rows("SELECT page_id,element_id,tag,element_type,element_json FROM html_elements WHERE project_id=? ORDER BY page_id,element_id")
-    element_links = scoped_rows("SELECT indicator_id,page_id,confirmed_element_id,confidence,reason,status,need_human_confirm,candidates_json FROM requirement_element_links WHERE project_id=? ORDER BY indicator_id")
+    html_pages=scoped_rows("SELECT site_package_id,page_id,title,page_path,source_asset FROM html_pages WHERE project_id=? ORDER BY page_path")
+    page_links=scoped_rows("SELECT link_id,'page' AS binding_type,function_id,page_id,'' AS confirmed_element_id,confidence,reason,status,need_human_confirm,model_name,evidence_json FROM requirement_page_links WHERE project_id=? ORDER BY function_id")
+    observations=scoped_rows("SELECT site_package_id,observation_id,page_id,action,result_json,evidence_json,observed_at FROM html_observations WHERE project_id=? ORDER BY observed_at")
+    element_links = scoped_rows("SELECT link_id,'element' AS binding_type,indicator_id,page_id,confirmed_element_id,confidence,reason,status,need_human_confirm,candidates_json FROM requirement_element_links WHERE project_id=? ORDER BY indicator_id")
     atomic_matrix = scoped_rows("SELECT indicator_id,case_id,case_version,step_numbers_json,coverage_type,coverage_status FROM case_indicator_links WHERE project_id=? ORDER BY indicator_id,case_id")
     versions = scoped_rows("SELECT case_id,version_no,parent_version_no,user_feedback,model_name,changed_fields_json,acceptance_status,operator,created_at FROM case_versions WHERE project_id=? ORDER BY case_id,version_no")
     pending = [row for row in indicators if row.get("need_human_confirm")] + [row for row in element_links if row.get("need_human_confirm")]
+    online=[row for row in indicators if row.get("verification_scope")=="online_required"]
     conflicts = [row for row in element_links if row.get("status") == "conflict"]
     return {
         "project_profile": profile_rows,
@@ -217,12 +223,18 @@ def build_project_export_rows(
         "requirement_case_matrix": matrix_rows,
         "trace_sources": trace_rows,
         "requirement_hierarchy": requirement_nodes,
+        "lowest_function_nodes":lowest_nodes,
+        "ipo_constraints":constraints,
         "atomic_requirements": indicators,
+        "html_pages":html_pages,
         "html_elements": html_elements,
+        "requirement_page_links":page_links,
         "requirement_element_links": element_links,
+        "playwright_observations":observations,
         "atomic_coverage_matrix": atomic_matrix,
         "case_version_history": versions,
         "pending_confirmation": pending,
+        "online_verification":online,
         "requirement_html_conflicts": conflicts,
     }
 
@@ -249,11 +261,17 @@ def export_project_excel(manager: ProjectManager, project_id: str) -> Path:
     for key, title in (
         ("requirement_hierarchy", "需求层级表"),
         ("atomic_requirements", "原子需求表"),
+        ("lowest_function_nodes", "最低功能节点"),
+        ("ipo_constraints", "输入处理输出约束"),
+        ("html_pages", "HTML页面表"),
         ("html_elements", "HTML元素表"),
+        ("requirement_page_links", "需求页面绑定表"),
         ("requirement_element_links", "需求元素匹配表"),
+        ("playwright_observations", "Playwright观测证据"),
         ("atomic_coverage_matrix", "原子需求覆盖矩阵"),
         ("case_version_history", "用例版本历史"),
         ("pending_confirmation", "待人工确认事项"),
+        ("online_verification", "待联机验证事项"),
         ("requirement_html_conflicts", "需求HTML冲突"),
     ):
         _write_sheet(workbook, title, rows[key])

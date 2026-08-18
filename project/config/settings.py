@@ -20,11 +20,18 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3.5:4b"
+    ollama_model: str = "qwen3:8b"
     ollama_extraction_model: str = "qwen3:8b"
-    ollama_review_model: str = "qwen3.5:4b"
+    ollama_review_model: str = "qwen3:8b"
     ollama_embed_model: str = "nomic-embed-text"
-    ollama_vision_model: str = "qwen3-vl:8b"
+    ollama_vision_model: str = "qwen2.5vl:3b"
+    text_model: str = "qwen3:8b"
+    vision_model: str = "qwen2.5vl:3b"
+    requirement_atomizer_model: str = "qwen3:8b"
+    requirement_auditor_model: str = "qwen3:8b"
+    page_understanding_model: str = "qwen2.5vl:3b"
+    test_case_model: str = "qwen3:8b"
+    test_case_review_model: str = "qwen3:8b"
     ollama_timeout: int = Field(default=120, ge=1, le=3600)
     ollama_num_ctx: int = Field(default=8192, ge=2048, le=131072)
     ollama_structured_num_predict: int = Field(default=2048, ge=256, le=16384)
@@ -68,7 +75,7 @@ class Settings(BaseModel):
             raise ValueError("OLLAMA_BASE_URL must start with http:// or https://")
         return normalized
 
-    @field_validator("ollama_model", "ollama_extraction_model", "ollama_review_model")
+    @field_validator("ollama_model", "ollama_extraction_model", "ollama_review_model", "ollama_vision_model", "text_model", "vision_model", "requirement_atomizer_model", "requirement_auditor_model", "page_understanding_model", "test_case_model", "test_case_review_model")
     @classmethod
     def _require_model_name(cls, value: str) -> str:
         normalized = value.strip()
@@ -109,6 +116,16 @@ class Settings(BaseModel):
             for field_name in cls.model_fields
             if (env_name := field_name.upper()) in source
         }
+        legacy = source.get("OLLAMA_MODEL")
+        if legacy:
+            for field_name in ("text_model", "requirement_atomizer_model", "requirement_auditor_model", "test_case_model", "test_case_review_model"):
+                if field_name.upper() not in source:
+                    field_values[field_name] = legacy
+        legacy_vision = source.get("OLLAMA_VISION_MODEL")
+        if legacy_vision:
+            for field_name in ("vision_model", "page_understanding_model"):
+                if field_name.upper() not in source:
+                    field_values[field_name] = legacy_vision
         return cls.model_validate(field_values)
 
     @property

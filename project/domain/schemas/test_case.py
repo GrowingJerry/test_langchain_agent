@@ -49,6 +49,15 @@ class TestCase(BaseModel):
     need_human_confirm: bool = False
     missing_information: List[str] = Field(default_factory=list)
     generation_mode: str = "unknown"
+    indicator_ids: List[str] = Field(default_factory=list)
+    requirement_hierarchy_path: List[str] = Field(default_factory=list)
+    function_id: str = ""
+    page_ids: List[str] = Field(default_factory=list)
+    html_element_ids: List[str] = Field(default_factory=list)
+    playwright_observation_ids: List[str] = Field(default_factory=list)
+    expected_source: str = "inferred_pending_confirmation"
+    offline_verifiable: bool = False
+    online_verification_items: List[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -94,6 +103,8 @@ class TestCase(BaseModel):
         "source_documents",
         "quality_category",
         "missing_information",
+        "indicator_ids", "requirement_hierarchy_path", "page_ids", "html_element_ids",
+        "playwright_observation_ids", "online_verification_items",
         mode="before",
     )
     @classmethod

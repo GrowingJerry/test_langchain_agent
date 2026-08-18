@@ -8,6 +8,7 @@ from infrastructure.retrieval.project_knowledge import search_project_chunks
 from domain.rules.quality_classifier import classify_requirement
 from domain.rules.test_method import match_test_methods
 from domain.schemas.generation import RequirementItem
+from infrastructure.database.json_codec import loads_json
 
 
 class ContextBuilder:
@@ -69,6 +70,47 @@ class ContextBuilder:
                 break
         return rows
 
+    def _traceability_context(self, project_id: str, requirement_id: str) -> Dict[str, Any]:
+        """Load only reviewed, project-scoped facts for the selected function."""
+        with self.manager.connections.connection() as conn:
+            atoms = [dict(row) for row in conn.execute(
+                "SELECT indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm "
+                "FROM requirement_indicators WHERE project_id=? AND function_id=? ORDER BY indicator_id",
+                (project_id, requirement_id),
+            )]
+            page_links = [dict(row) for row in conn.execute(
+                "SELECT page_id,confidence,reason,status,need_human_confirm,evidence_json FROM requirement_page_links "
+                "WHERE project_id=? AND function_id=? ORDER BY confidence DESC",
+                (project_id, requirement_id),
+            )]
+            element_links = [dict(row) for row in conn.execute(
+                "SELECT indicator_id,page_id,confirmed_element_id,confidence,reason,status,need_human_confirm,candidates_json "
+                "FROM requirement_element_links WHERE project_id=? AND indicator_id IN "
+                "(SELECT indicator_id FROM requirement_indicators WHERE project_id=? AND function_id=?)",
+                (project_id, project_id, requirement_id),
+            )]
+            observations = [dict(row) for row in conn.execute(
+                "SELECT observation_id,page_id,action,result_json,evidence_json FROM html_observations "
+                "WHERE project_id=? ORDER BY observed_at DESC LIMIT 30", (project_id,)
+            )]
+        for row in atoms:
+            row["source"] = loads_json(row.pop("source_json", "{}"), {})
+            row["rules"] = loads_json(row.pop("rules_json", "{}"), {})
+        for row in page_links:
+            row["evidence"] = loads_json(row.pop("evidence_json", "{}"), {})
+        for row in element_links:
+            row["candidates"] = loads_json(row.pop("candidates_json", "[]"), [])
+        for row in observations:
+            row["observed_result"] = loads_json(row.pop("result_json", "{}"), {})
+            row["evidence"] = loads_json(row.pop("evidence_json", "{}"), {})
+        return {
+            "atomic_requirements": atoms,
+            "requirement_page_links": page_links,
+            "requirement_element_links": element_links,
+            "playwright_observations": observations,
+            "evidence_policy": "html_observed is auxiliary evidence and must never replace requirement expectations",
+        }
+
     def build(
         self,
         project_id: str,
@@ -129,6 +171,7 @@ class ContextBuilder:
                 for item, score, reason in found
             ]
         visual_rows = self._visual_evidence_rows(project_id, requirement_id)
+        traceability = self._traceability_context(project_id, requirement_id)
         missing = []
         if not profile:
             missing.append("项目画像")
@@ -156,12 +199,17 @@ class ContextBuilder:
             "six_quality_attributes": six,
             "similar_library_cases": similar_rows,
             "visual_evidence": visual_rows,
+            "traceability_context": traceability,
             "evidence_context": {
                 "text_document_evidence": chunks,
                 "requirement_points": [requirement],
                 "scenario_cards": scenarios,
                 "history_case_references": similar_rows,
                 "visual_evidence": visual_rows,
+                "atomic_requirements": traceability["atomic_requirements"],
+                "requirement_page_links": traceability["requirement_page_links"],
+                "requirement_element_links": traceability["requirement_element_links"],
+                "playwright_observations": traceability["playwright_observations"],
                 "visual_evidence_policy": "视觉证据仅作为辅助证据，不能覆盖文本需求；标记需人工确认的证据不可作为唯一依据。",
             },
             "missing_information": missing,

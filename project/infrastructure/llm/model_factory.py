@@ -20,6 +20,10 @@ class ModelPurpose(str, Enum):
     TEXT = "text"
     EXTRACTION = "extraction"
     REVIEW = "review"
+    REQUIREMENT_ATOMIZER = "requirement_atomizer"
+    REQUIREMENT_AUDITOR = "requirement_auditor"
+    TEST_CASE = "test_case"
+    TEST_CASE_REVIEW = "test_case_review"
 
 
 class OllamaModelFactory:
@@ -57,7 +61,7 @@ class OllamaModelFactory:
             temperature if temperature is not None else default_temperature
         )
         context_window = num_ctx if num_ctx is not None else self.settings.ollama_num_ctx
-        fixed_structured_task = purpose in {ModelPurpose.EXTRACTION, ModelPurpose.REVIEW}
+        fixed_structured_task = purpose != ModelPurpose.TEXT
         return ChatOllama(
             model=model_name,
             base_url=self.settings.ollama_base_url,
@@ -87,7 +91,24 @@ class OllamaModelFactory:
     def review_model(self, **overrides: Any) -> Any:
         return self.create(ModelPurpose.REVIEW, **overrides)
 
+    def requirement_atomizer_model(self, **overrides: Any) -> Any:
+        return self.create(ModelPurpose.REQUIREMENT_ATOMIZER, **overrides)
+
+    def requirement_auditor_model(self, **overrides: Any) -> Any:
+        return self.create(ModelPurpose.REQUIREMENT_AUDITOR, **overrides)
+
+    def test_case_model(self, **overrides: Any) -> Any:
+        return self.create(ModelPurpose.TEST_CASE, **overrides)
+
     def _purpose_defaults(self, purpose: ModelPurpose) -> tuple[str, float]:
+        if purpose == ModelPurpose.REQUIREMENT_ATOMIZER:
+            return self.settings.requirement_atomizer_model, 0.0
+        if purpose == ModelPurpose.REQUIREMENT_AUDITOR:
+            return self.settings.requirement_auditor_model, 0.0
+        if purpose == ModelPurpose.TEST_CASE:
+            return self.settings.test_case_model, 0.0
+        if purpose == ModelPurpose.TEST_CASE_REVIEW:
+            return self.settings.test_case_review_model, 0.0
         if purpose == ModelPurpose.EXTRACTION:
             return (
                 self.settings.ollama_extraction_model,
@@ -98,7 +119,7 @@ class OllamaModelFactory:
                 self.settings.ollama_review_model,
                 self.settings.ollama_review_temperature,
             )
-        return self.settings.ollama_model, self.settings.ollama_temperature
+        return self.settings.text_model, self.settings.ollama_temperature
 
 
 def create_text_model(settings: Settings = default_settings, **overrides: Any) -> Any:
