@@ -23,6 +23,7 @@ Thumbs.db
 outputs/
 project/data/
 project/outputs/
+project/logs/
 *.db
 *.sqlite
 *.sqlite3

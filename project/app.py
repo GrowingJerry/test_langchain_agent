@@ -4,6 +4,7 @@
 from pathlib import Path
 
 import streamlit as st
+from infrastructure.runtime_diagnostics import logger
 
 from config import settings
 from application.services.project_service import DEFAULT_PROJECT_DB
@@ -113,4 +114,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except MemoryError:
+        logger.exception("Streamlit request failed due to memory exhaustion")
+        st.error("内存不足，已中止本次操作。后台仍保持运行，请缩小单次显示范围并查看 logs/streamlit.log。")
+    except SystemExit as exc:
+        logger.exception("Unexpected SystemExit in Streamlit request: %s", exc)
+        st.error(f"后台任务异常退出：SystemExit({exc})。详情见 logs/streamlit.log。")
+    except Exception as exc:
+        logger.exception("Unhandled Streamlit request error")
+        st.error(f"请求失败但服务仍在运行：{type(exc).__name__}: {exc}")

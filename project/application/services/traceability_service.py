@@ -169,20 +169,23 @@ class _RawElement:
 
 class _HTMLCollector(HTMLParser):
     TARGETS = {"input", "button", "select", "textarea", "a", "option"}
+    VOID = {"area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr"}
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True); self.stack=[]; self.elements=[]; self.title=""; self.labels={}; self._label_for=""
     def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs); self.stack.append(tag)
+        attrs = dict(attrs); path="/".join([*self.stack,tag])
+        if tag not in self.VOID: self.stack.append(tag)
         if tag == "label": self._label_for = attrs.get("for", "")
         if tag in self.TARGETS:
-            path = "/".join(self.stack)
             form_id = next((e.attrs.get("id", "") for e in reversed(self.elements) if e.tag == "form"), "")
             self.elements.append(_RawElement(tag, attrs, path=path, form_id=form_id))
-        elif tag == "form": self.elements.append(_RawElement(tag, attrs, path="/".join(self.stack)))
+        elif tag == "form": self.elements.append(_RawElement(tag, attrs, path=path))
     def handle_endtag(self, tag):
         if tag == "label": self._label_for = ""
         if self.stack:
-            try: self.stack.pop(len(self.stack)-1-self.stack[::-1].index(tag))
+            try:
+                index=len(self.stack)-1-self.stack[::-1].index(tag)
+                del self.stack[index:]
             except ValueError: pass
     def handle_data(self, data):
         value = data.strip()
@@ -192,27 +195,27 @@ class _HTMLCollector(HTMLParser):
         if self.elements and self.elements[-1].tag in self.TARGETS: self.elements[-1].text += value
 
 
-def parse_offline_html(content: str | bytes, page_path: str = "index.html") -> tuple[dict[str, str], list[HtmlElement]]:
+def iter_offline_html_elements(content: str | bytes, page_path: str = "index.html"):
+    """Parse once and yield elements one by one to keep large-page memory bounded."""
     text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
     parser = _HTMLCollector(); parser.feed(text)
     page_id = _stable_id("PAGE", page_path)
-    result=[]
-    for index, raw in enumerate(e for e in parser.elements if e.tag != "form"):
-        attrs=raw.attrs; element_id=_stable_id("EL", page_path, attrs.get("id", ""), raw.path, str(index))
-        label=parser.labels.get(attrs.get("id", ""), "")
-        locators=[]
-        if attrs.get("role") and (attrs.get("aria-label") or label): locators.append(f"role={attrs['role']} name={attrs.get('aria-label') or label}")
-        if label: locators.append(f"label={label}")
-        if attrs.get("id"): locators.append(f"#{attrs['id']}")
-        locators.append(raw.path)
-        hidden = "hidden" in attrs or attrs.get("type") == "hidden" or "display:none" in attrs.get("style", "").replace(" ", "")
-        result.append(HtmlElement(element_id=element_id, page_id=page_id, tag=raw.tag,
-            element_type=attrs.get("type", raw.tag), text=raw.text.strip(), attributes=attrs,
-            label=label, visible=not hidden, enabled="disabled" not in attrs,
-            default_value=attrs.get("value", ""), form_id=raw.form_id,
-            local_events=sorted(k for k in attrs if k.lower().startswith("on")),
-            locator_candidates=locators, semantic_position="页面表单区域", dom_path=raw.path))
-    return {"page_id": page_id, "title": parser.title or page_path, "path": page_path}, result
+    def generate():
+        for index, raw in enumerate(e for e in parser.elements if e.tag != "form"):
+            attrs=raw.attrs; element_id=_stable_id("EL", page_path, attrs.get("id", ""), raw.path, str(index))
+            label=parser.labels.get(attrs.get("id", ""), ""); locators=[]
+            if attrs.get("role") and (attrs.get("aria-label") or label): locators.append(f"role={attrs['role']} name={attrs.get('aria-label') or label}")
+            if label: locators.append(f"label={label}")
+            if attrs.get("id"): locators.append(f"#{attrs['id']}")
+            locators.append(raw.path)
+            hidden="hidden" in attrs or attrs.get("type")=="hidden" or "display:none" in attrs.get("style","").replace(" ","")
+            yield HtmlElement(element_id=element_id,page_id=page_id,tag=raw.tag,element_type=attrs.get("type",raw.tag),text=raw.text.strip(),attributes=attrs,label=label,visible=not hidden,enabled="disabled" not in attrs,default_value=attrs.get("value",""),form_id=raw.form_id,local_events=sorted(k for k in attrs if k.lower().startswith("on")),locator_candidates=locators,semantic_position="页面表单区域",dom_path=raw.path)
+    return {"page_id":page_id,"title":parser.title or page_path,"path":page_path},generate()
+
+
+def parse_offline_html(content: str | bytes, page_path: str = "index.html") -> tuple[dict[str, str], list[HtmlElement]]:
+    page,elements=iter_offline_html_elements(content,page_path)
+    return page,list(elements)
 
 
 def match_indicator_elements(indicator: RequirementIndicator, elements: Iterable[HtmlElement]) -> dict[str, Any]:

@@ -8,7 +8,7 @@ from typing import Dict
 
 from infrastructure.database.connection import SQLiteConnectionManager
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -388,6 +388,11 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
             CREATE TABLE IF NOT EXISTS case_page_links (project_id TEXT NOT NULL,case_id TEXT NOT NULL,page_id TEXT NOT NULL,PRIMARY KEY(project_id,case_id,page_id));
             CREATE TABLE IF NOT EXISTS case_element_links (project_id TEXT NOT NULL,case_id TEXT NOT NULL,element_id TEXT NOT NULL,PRIMARY KEY(project_id,case_id,element_id));
             CREATE TABLE IF NOT EXISTS case_observation_links (project_id TEXT NOT NULL,case_id TEXT NOT NULL,observation_id TEXT NOT NULL,PRIMARY KEY(project_id,case_id,observation_id));
+            CREATE TABLE IF NOT EXISTS html_page_resources (
+                project_id TEXT NOT NULL,page_id TEXT NOT NULL,resource_id TEXT NOT NULL,resource_type TEXT NOT NULL,
+                reference TEXT NOT NULL DEFAULT '',summary TEXT NOT NULL DEFAULT '',missing INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(project_id,page_id,resource_id),FOREIGN KEY(project_id,page_id) REFERENCES html_pages(project_id,page_id)
+            );
             CREATE TABLE IF NOT EXISTS equipment_import_errors (
                 error_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_file TEXT NOT NULL,
                 source_line_no INTEGER NOT NULL, error_type TEXT NOT NULL, error_message TEXT NOT NULL,

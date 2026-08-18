@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
+import logging
+import time
+from infrastructure.runtime_diagnostics import configure_runtime_logging
 
 from config.settings import Settings, settings as default_settings
 from chains.test_case_review import TestCaseReviewChain
@@ -40,6 +43,9 @@ from infrastructure.equipment.jsonl_importer import MilitaryJsonlImporter
 from infrastructure.database.json_codec import loads_json
 from domain.schemas.project import VisualEvidence
 from workflows.scenario.scenario_workflow import ScenarioWorkflow
+
+configure_runtime_logging()
+logger = logging.getLogger("test_agent.ui_service")
 
 
 class UIApplicationService:
@@ -571,7 +577,13 @@ class UIApplicationService:
         from application.services.csci_document_service import parse_formal_csci_docx
         from application.services.traceability_service import atomic_indicators
         from infrastructure.database.json_codec import dumps_json
-        parsed=parse_formal_csci_docx(path); nodes=parsed["nodes"]
+        started=time.monotonic()
+        logger.info("CSCI parse started project=%s file=%s size=%s",project_id,path.name,path.stat().st_size)
+        try:
+            parsed=parse_formal_csci_docx(path); nodes=parsed["nodes"]
+        except Exception:
+            logger.exception("CSCI parse failed project=%s file=%s",project_id,path)
+            raise
         indicators = [item for node in parsed["testable_nodes"] for item in atomic_indicators(node)]
         with self.manager.connections.transaction() as conn:
             for node in nodes:
@@ -615,9 +627,16 @@ class UIApplicationService:
                 "missing_information": [],
                 "retained": bool(node.testable),
             })
-        return {"nodes":[x.model_dump(mode="json") for x in nodes],"overview_nodes":[x.model_dump(mode="json") for x in parsed["overview_nodes"]],"testable_nodes":[x.model_dump(mode="json") for x in parsed["testable_nodes"]],"indicators":[x.model_dump(mode="json") for x in indicators]}
+        section_32=sum(1 for x in nodes if str(x.section_number).startswith("3.2"))
+        section_33=sum(1 for x in nodes if str(x.section_number).startswith("3.3"))
+        warnings=list(parsed.get("warnings") or [])
+        if not nodes: warnings.append("未识别到3.2/3.3需求节点；请检查标题编号和DOCX正文结构。")
+        if nodes and not parsed["testable_nodes"]: warnings.append("已识别需求树，但没有具备完整功能描述/输入/处理/输出的最低可测功能。")
+        elapsed=round(time.monotonic()-started,3)
+        logger.info("CSCI parse completed project=%s nodes=%s testable=%s elapsed=%s",project_id,len(nodes),len(parsed["testable_nodes"]),elapsed)
+        return {"section_32_count":section_32,"section_33_count":section_33,"node_count":len(nodes),"testable_count":len(parsed["testable_nodes"]),"warnings":warnings,"elapsed_seconds":elapsed,"nodes":[x.model_dump(mode="json") for x in nodes],"overview_nodes":[x.model_dump(mode="json") for x in parsed["overview_nodes"]],"testable_nodes":[x.model_dump(mode="json") for x in parsed["testable_nodes"]],"indicators":[x.model_dump(mode="json") for x in indicators]}
 
-    def atomize_and_audit_requirements(self, project_id: str) -> Dict[str, Any]:
+    def atomize_and_audit_requirements(self, project_id: str, progress_callback: Any = None, resume: bool = True) -> Dict[str, Any]:
         from application.services.requirement_atomization_service import atomize_and_audit
         from domain.schemas.traceability import RequirementNode
         from infrastructure.database.json_codec import dumps_json, loads_json
@@ -627,19 +646,38 @@ class UIApplicationService:
         for row in rows:
             if not row.get("testable"): continue
             nodes.append(RequirementNode(node_id=row["node_id"],name=row["name"],identifier=row["identifier"],identifier_generated=bool(row["identifier_generated"]),level=row["level"],parent_id=row.get("parent_id") or "",section_number=row.get("section_number") or "",hierarchy_path=loads_json(row.get("hierarchy_path_json"),[]),ancestor_node_ids=loads_json(row.get("ancestor_node_ids_json"),[]),ancestor_identifiers=loads_json(row.get("ancestor_identifiers_json"),[]),node_type=row.get("node_type") or "function",source_document=row.get("source_document") or "",source_block_id=row.get("source_block_id") or "",source_position=loads_json(row.get("source_position_json"),{}),sections=loads_json(row.get("sections_json"),{}),section_evidence=loads_json(row.get("section_evidence_json"),{}),overview_node_id=row.get("overview_node_id") or "",testable=True))
-        results=[]
-        with self.manager.connections.transaction() as conn:
-            for node in nodes:
+        results=[]; failures=[]; total=len(nodes)
+        for index,node in enumerate(nodes,1):
+            if progress_callback: progress_callback({"index":index,"total":total,"function_id":node.identifier,"name":node.name,"status":"running"})
+            with self.manager.connections.connection() as conn:
+                previous=conn.execute("SELECT review_status FROM requirement_nodes WHERE project_id=? AND node_id=?",(project_id,node.node_id)).fetchone()
+            if resume and previous and previous[0] in ("passed","human_confirmed"):
+                results.append({"function_id":node.identifier,"status":"skipped_completed"})
+                if progress_callback: progress_callback({"index":index,"total":total,"function_id":node.identifier,"name":node.name,"status":"skipped_completed"})
+                continue
+            try:
                 overview=""
                 if node.overview_node_id:
-                    overview_row=conn.execute("SELECT sections_json FROM requirement_nodes WHERE project_id=? AND node_id=?",(project_id,node.overview_node_id)).fetchone()
+                    with self.manager.connections.connection() as conn:
+                        overview_row=conn.execute("SELECT sections_json FROM requirement_nodes WHERE project_id=? AND node_id=?",(project_id,node.overview_node_id)).fetchone()
                     if overview_row: overview=str(loads_json(overview_row[0],{}).get("总体需求概述", ""))
-                result=atomize_and_audit(node,overview,self.settings); results.append({"function_id":node.identifier,"coverage_complete":result["coverage_complete"],"coverage_score":result["coverage_score"],"model_audit":result["model_audit"],"deterministic_audit":result["deterministic_audit"]})
-                conn.execute("DELETE FROM requirement_indicators WHERE project_id=? AND function_id=?",(project_id,node.identifier))
-                for item in result["atoms"]:
-                    conn.execute("INSERT INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,dumps_json({"section":item.source_section,"block_id":item.source_block_id,"source_text":item.source_text,"evidence_spans":item.evidence_spans,"mandatory_coverage":True}),dumps_json({"inputs":item.input_constraints,"processing":item.processing_rules,"expected":item.expected_behavior}),item.verification_scope,int(item.need_human_confirm)))
-                conn.execute("UPDATE requirement_nodes SET review_status=? WHERE project_id=? AND node_id=?",("passed" if result["coverage_complete"] else "pending",project_id,node.node_id))
-        return {"functions":results,"coverage_complete":all(x["coverage_complete"] for x in results) if results else False}
+                result=atomize_and_audit(node,overview,self.settings)
+                if not result.get("atoms") or not isinstance(result.get("model_audit"),dict) or not result["model_audit"]:
+                    raise ValueError("模型返回空原子需求或空审计结果")
+                record={"function_id":node.identifier,"status":"completed","atom_count":len(result["atoms"]),"coverage_complete":bool(result["coverage_complete"]),"coverage_score":result["coverage_score"],"audit_summary":{"missing_spans":result["model_audit"].get("missing_spans",[]),"unsupported_atoms":result["model_audit"].get("unsupported_atoms",[]),"review_notes":result["model_audit"].get("review_notes",[])},"deterministic_audit":result["deterministic_audit"]}
+                with self.manager.connections.transaction() as conn:
+                    conn.execute("DELETE FROM requirement_indicators WHERE project_id=? AND function_id=?",(project_id,node.identifier))
+                    for item in result["atoms"]:
+                        conn.execute("INSERT INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,dumps_json({"section":item.source_section,"block_id":item.source_block_id,"source_text":item.source_text,"evidence_spans":item.evidence_spans,"mandatory_coverage":True}),dumps_json({"inputs":item.input_constraints,"processing":item.processing_rules,"expected":item.expected_behavior}),item.verification_scope,int(item.need_human_confirm)))
+                    conn.execute("UPDATE requirement_nodes SET review_status=? WHERE project_id=? AND node_id=?",("passed" if result["coverage_complete"] else "pending",project_id,node.node_id))
+                results.append(record)
+                if progress_callback: progress_callback({"index":index,"total":total,"function_id":node.identifier,"name":node.name,"status":"completed","atom_count":len(result["atoms"])})
+            except Exception as exc:
+                logger.exception("Requirement atomization failed project=%s function=%s",project_id,node.identifier)
+                failures.append({"function_id":node.identifier,"error":f"{type(exc).__name__}: {exc}"})
+                if progress_callback: progress_callback({"index":index,"total":total,"function_id":node.identifier,"name":node.name,"status":"failed","error":str(exc)})
+        completed=[x for x in results if x.get("status")=="completed"]
+        return {"total":total,"completed":len(completed),"failures":failures,"functions":results,"coverage_complete":bool(total and not failures and all(x.get("coverage_complete",True) for x in results))}
 
     def save_reviewed_atoms(self, project_id: str, rows: List[Dict[str, Any]]) -> None:
         from hashlib import sha256
@@ -686,15 +724,46 @@ class UIApplicationService:
                 else:
                     conn.execute("UPDATE requirement_page_links SET page_id=?,status=?,need_human_confirm=? WHERE project_id=? AND link_id=?",(page_id,"confirmed" if confirmed else "proposed",0 if confirmed else 1,project_id,link_id))
 
-    def analyze_offline_html(self, project_id: str, filename: str, content: bytes) -> Dict[str, Any]:
-        from application.services.traceability_service import parse_offline_html
+    def analyze_offline_html(self, project_id: str, filename: str, content: bytes, include_elements: bool = True) -> Dict[str, Any]:
+        from application.services.traceability_service import iter_offline_html_elements
         from infrastructure.database.json_codec import dumps_json
-        page, elements = parse_offline_html(content, filename)
+        started=time.monotonic()
+        logger.info("Static HTML parse started project=%s file=%s size=%s",project_id,filename,len(content))
+        try: page, elements = iter_offline_html_elements(content, filename)
+        except Exception:
+            logger.exception("Static HTML parse failed project=%s file=%s",project_id,filename); raise
+        form_ids=set(); button_count=0; input_count=0; count=0; returned=[] if include_elements else None
+        import re
+        text=content.decode("utf-8",errors="replace")
+        resource_rows=[]
+        for kind,pattern in (("javascript",r"<script\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]"),("stylesheet",r"<link\b[^>]*\bhref\s*=\s*['\"]([^'\"]+)['\"]")):
+            for index,match in enumerate(re.finditer(pattern,text,re.I)):
+                reference=match.group(1)
+                if reference.lower().startswith("data:"): continue
+                resource_rows.append((f"RES-{kind}-{index}",kind,reference,f"external reference; length={len(reference)}"))
+        inline_js=sum(1 for x in re.finditer(r"<script\b(?![^>]*\bsrc=)[^>]*>",text,re.I)); inline_css=sum(1 for x in re.finditer(r"<style\b[^>]*>",text,re.I))
+        if inline_js: resource_rows.append(("RES-inline-js","javascript_inline","",f"inline blocks={inline_js}; content not persisted"))
+        if inline_css: resource_rows.append(("RES-inline-css","stylesheet_inline","",f"inline blocks={inline_css}; content not persisted"))
+        del text
         with self.manager.connections.transaction() as conn:
             conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset) VALUES(?,?,?,?,?)",(project_id,page["page_id"],page["title"],page["path"],filename))
+            conn.execute("DELETE FROM html_page_resources WHERE project_id=? AND page_id=?",(project_id,page["page_id"]))
+            for resource_id,kind,reference,summary in resource_rows:
+                conn.execute("INSERT INTO html_page_resources(project_id,page_id,resource_id,resource_type,reference,summary,missing) VALUES(?,?,?,?,?,?,0)",(project_id,page["page_id"],resource_id,kind,reference[:1000],summary[:200]))
             for item in elements:
                 conn.execute("INSERT OR REPLACE INTO html_elements(project_id,element_id,page_id,tag,element_type,element_json) VALUES(?,?,?,?,?,?)",(project_id,item.element_id,item.page_id,item.tag,item.element_type,dumps_json(item.model_dump(mode="json"))))
-        return {"page":page,"elements":[x.model_dump(mode="json") for x in elements]}
+                if returned is not None: returned.append(item.model_dump(mode="json"))
+                count+=1
+                if item.form_id: form_ids.add(item.form_id)
+                button_count+=int(item.tag=="button" or item.element_type in {"button","submit"})
+                input_count+=int(item.tag in {"input","textarea","select"})
+        counts={"element_count":count,"form_count":len(form_ids),"button_count":button_count,"input_count":input_count}
+        warnings=[]
+        if len(content)>2*1024*1024: warnings.append("大文件已采用静态流式事件解析；完整DOM不会进入会话状态。")
+        result={"page":page,"page_count":1,**counts,"resource_reference_count":len(resource_rows),"warnings":warnings,"elapsed_seconds":round(time.monotonic()-started,3)}
+        if returned is not None: result["elements"]=returned
+        logger.info("Static HTML parse completed project=%s elements=%s elapsed=%s",project_id,count,result["elapsed_seconds"])
+        return result
 
     def analyze_site_zip(self, project_id: str, filename: str, content: bytes) -> Dict[str, Any]:
         from hashlib import sha256
@@ -715,12 +784,30 @@ class UIApplicationService:
         return {"site_package_id":site_id,"root_path":str(root),**manifest}
 
     def explore_site_package(self, project_id: str, site_package_id: str, entry: str, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
-        from application.services.offline_site_service import explore_site
         from infrastructure.database.json_codec import dumps_json
+        import json, os, subprocess, sys, uuid
         with self.manager.connections.connection() as conn:
             row=conn.execute("SELECT root_path FROM site_packages WHERE project_id=? AND site_package_id=?",(project_id,site_package_id)).fetchone()
         if not row: raise KeyError("当前项目中不存在该站点包")
-        evidence=self.manager.project_dir(project_id)/"site_packages"/site_package_id/"evidence"; result=explore_site(Path(row["root_path"]),entry,plan,evidence)
+        evidence=self.manager.project_dir(project_id)/"site_packages"/site_package_id/"evidence"; evidence.mkdir(parents=True,exist_ok=True)
+        job_id=uuid.uuid4().hex[:12]; request_path=evidence/f"playwright-{job_id}-request.json"; output_path=evidence/f"playwright-{job_id}-result.json"; log_path=evidence/"playwright.log"
+        request_path.write_text(json.dumps({"root":row["root_path"],"entry":entry,"plan":plan,"evidence_dir":str(evidence)},ensure_ascii=False),"utf-8")
+        worker=Path(__file__).resolve().parents[2]/"scripts"/"playwright_worker.py"; env=os.environ.copy(); env["PYTHONPATH"]=str(Path(__file__).resolve().parents[2])
+        try:
+            with log_path.open("a",encoding="utf-8") as log:
+                completed=subprocess.run([sys.executable,"-X","faulthandler",str(worker),"--request",str(request_path),"--output",str(output_path)],cwd=str(worker.parent.parent),env=env,stdout=log,stderr=subprocess.STDOUT,text=True,timeout=120,check=False)
+        except subprocess.TimeoutExpired as exc:
+            logger.exception("Playwright subprocess timeout project=%s site=%s",project_id,site_package_id)
+            return {"entry":entry,"events":[],"blocked_requests":[],"return_code":-1,"failure_reason":f"TimeoutExpired: {exc}","playwright_log":str(log_path)}
+        payload=json.loads(output_path.read_text("utf-8")) if output_path.exists() else {"ok":False,"error":"worker produced no result"}
+        if completed.returncode or not payload.get("ok"):
+            reason=payload.get("error") or f"worker return code {completed.returncode}"
+            logger.error("Playwright subprocess failed project=%s site=%s reason=%s",project_id,site_package_id,reason)
+            return {"entry":entry,"events":[],"blocked_requests":[],"return_code":completed.returncode,"failure_reason":reason,"playwright_log":str(log_path)}
+        full_result=payload["result"]; compact_events=[]
+        for event in full_result.get("events",[]):
+            compact_events.append({k:v for k,v in event.items() if k not in {"before_dom_summary","after_dom_summary","visible_text_before","visible_text_after","controls"}})
+        result={**full_result,"events":compact_events,"visible_text":str(full_result.get("visible_text", ""))[:5000],"return_code":completed.returncode,"failure_reason":"","playwright_log":str(log_path),"full_evidence_file":str(output_path)}
         with self.manager.connections.transaction() as conn:
             conn.execute("INSERT INTO html_observations(project_id,observation_id,page_id,action,result_json,site_package_id,evidence_json) VALUES(?,?,?,?,?,?,?)",(project_id,f"OBS-{__import__('uuid').uuid4().hex[:16]}",entry,"bounded_plan",dumps_json(result),site_package_id,dumps_json({"screenshots":[x.get("after_screenshot") for x in result["events"] if x.get("after_screenshot")]})))
         return result
@@ -787,9 +874,24 @@ class UIApplicationService:
         return {"document_uploaded":bool(self.manager.list_documents(project_id)),"section_32_identified":bool(nodes),"section_33_identified":bool(nodes),"lowest_function_count":testable,"atom_count":atoms,"atom_review_passed":bool(testable and reviewed==testable),"html_uploaded":bool(packages or pages),"page_count":pages,"playwright":self.playwright_status(),"exploration_completed":bool(observations),"binding_completion":round(bindings/max(1,testable),4),"pending_confirmation":pending,"case_count":cases,"atomic_coverage_rate":round(covered/total,4),"online_required":online,"reviewed":bool(self.manager.list_review_results(project_id)),"exported":any((self.manager.project_dir(project_id)/"exports").iterdir()) if (self.manager.project_dir(project_id)/"exports").exists() else False}
 
     def traceability_rows(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]:
-        rows = self.export_rows(project_id)
-        keys = ("requirement_hierarchy","atomic_requirements","html_elements","requirement_page_links","requirement_element_links","atomic_coverage_matrix","case_version_history")
-        return {key: rows[key] for key in keys}
+        """Return bounded UI rows; full datasets are read only by explicit export."""
+        queries={
+            "requirement_hierarchy":"SELECT identifier,name,level,node_type,testable,review_status FROM requirement_nodes WHERE project_id=? ORDER BY source_block_id LIMIT 500",
+            "atomic_requirements":"SELECT indicator_id,function_id,indicator_text,indicator_type,verification_scope,need_human_confirm FROM requirement_indicators WHERE project_id=? ORDER BY function_id,indicator_id LIMIT 500",
+            "requirement_page_links":"SELECT link_id,'page' AS binding_type,function_id,page_id,'' AS confirmed_element_id,confidence,reason,status,need_human_confirm FROM requirement_page_links WHERE project_id=? ORDER BY function_id LIMIT 500",
+            "requirement_element_links":"SELECT link_id,'element' AS binding_type,indicator_id,page_id,confirmed_element_id,confidence,reason,status,need_human_confirm FROM requirement_element_links WHERE project_id=? ORDER BY indicator_id LIMIT 500",
+            "atomic_coverage_matrix":"SELECT indicator_id,case_id,case_version,coverage_type,coverage_status FROM case_indicator_links WHERE project_id=? ORDER BY indicator_id,case_id LIMIT 500",
+            "case_version_history":"SELECT case_id,version_no,parent_version_no,acceptance_status,operator,created_at FROM case_versions WHERE project_id=? ORDER BY case_id,version_no LIMIT 500",
+        }
+        with self.manager.connections.connection() as conn:
+            return {key:[dict(row) for row in conn.execute(sql,(project_id,))] for key,sql in queries.items()}
+
+    def list_html_elements_page(self, project_id: str, page: int = 1, page_size: int = 100) -> Dict[str, Any]:
+        page_size=max(1,min(int(page_size),100)); page=max(1,int(page)); offset=(page-1)*page_size
+        with self.manager.connections.connection() as conn:
+            total=conn.execute("SELECT count(*) FROM html_elements WHERE project_id=?",(project_id,)).fetchone()[0]
+            rows=[dict(row) for row in conn.execute("SELECT page_id,element_id,tag,element_type FROM html_elements WHERE project_id=? ORDER BY page_id,element_id LIMIT ? OFFSET ?",(project_id,page_size,offset))]
+        return {"rows":rows,"total":total,"page":page,"page_size":page_size,"pages":max(1,(total+page_size-1)//page_size)}
 
     def case_regeneration_context(self, project_id: str, case_id: str) -> Dict[str, Any]:
         from application.services.case_regeneration_service import CaseRegenerationService

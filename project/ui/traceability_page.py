@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
+
+logger = logging.getLogger("test_agent.traceability_ui")
 
 
 def _trace_rows(service: Any, project_id: str) -> dict[str, list[dict[str, Any]]]:
     try:
         return service.traceability_rows(project_id)
     except Exception as exc:
+        logger.exception("Traceability data load failed project=%s",project_id)
         st.warning(f"追踪数据暂时无法读取：{type(exc).__name__}: {exc}")
         return {}
 
@@ -50,25 +55,55 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                 if not source.exists():
                     st.error("已入库文档文件不存在，请重新上传该文档。")
                 else:
-                    result = service.analyze_csci_docx(project_id, source)
-                    st.success(
-                        f"保存完整树 {len(result['nodes'])} 个节点，其中 "
-                        f"{len(result['testable_nodes'])} 个最深可测试功能。"
-                    )
-                    st.rerun()
+                    progress=st.progress(0,text="阶段 1/3：读取 DOCX 有序正文块")
+                    started=time.monotonic()
+                    try:
+                        progress.progress(.35,text="阶段 2/3：确定性识别 3.2/3.3 层级和最低功能")
+                        result = service.analyze_csci_docx(project_id, source)
+                        progress.progress(1.0,text=f"阶段 3/3：持久化完成，用时 {result['elapsed_seconds']:.2f} 秒")
+                        summary={key:result[key] for key in ("section_32_count","section_33_count","testable_count","warnings","elapsed_seconds")}
+                        st.session_state[f"csci_summary_{project_id}"]=summary
+                        if result["node_count"] == 0:
+                            st.error("解析结果为 0，已阻断模型拆分。请检查文档是否包含编号明确的 3.2/3.3 标题。")
+                        else:
+                            st.success(f"需求树解析完成：3.2 节点 {result['section_32_count']}，3.3 节点 {result['section_33_count']}，最低可测功能 {result['testable_count']}，用时 {result['elapsed_seconds']:.2f} 秒。")
+                        for warning in result["warnings"]: st.warning(warning)
+                    except Exception as exc:
+                        logger.exception("CSCI parse button failed project=%s",project_id)
+                        progress.empty(); st.error(f"需求树解析失败：{type(exc).__name__}: {exc}。详情见 logs/streamlit.log。")
 
     with st.container(border=True):
         st.write("**步骤3：功能描述无损拆分与覆盖审核**")
-        if st.button("调用配置模型拆分并独立审计",type="primary",key=f"atomize_audit_{project_id}"):
-            with st.status("正在拆分功能描述并执行独立覆盖审计",expanded=True): result=service.atomize_and_audit_requirements(project_id)
-            st.session_state[f"atom_audit_{project_id}"]=result
+        workflow=service.workflow_status(project_id)
+        no_testable=workflow.get("lowest_function_count",0)==0
+        if no_testable: st.warning("最低可测功能数为 0，模型拆分已禁用。请先修复需求树解析结果。")
+        if st.button("调用配置模型拆分并独立审计",type="primary",disabled=no_testable,key=f"atomize_audit_{project_id}"):
+            bar=st.progress(0,text="准备逐项拆分")
+            current=st.empty()
+            def on_progress(event):
+                index=int(event.get("index",0)); total=max(1,int(event.get("total",1)))
+                current.info(f"[{index}/{total}] {event.get('function_id','')} {event.get('name','')}：{event.get('status','')}")
+                bar.progress(min(index/total,1.0),text=f"已处理 {index}/{total}")
+            try:
+                result=service.atomize_and_audit_requirements(project_id,progress_callback=on_progress,resume=True)
+                summary={"total":result["total"],"completed":result["completed"],"failure_count":len(result["failures"]),"failures":result["failures"],"coverage_complete":result["coverage_complete"]}
+                st.session_state[f"atom_audit_{project_id}"]=summary
+                if result["failures"] or not result["functions"]:
+                    st.error(f"拆分未完整完成：失败 {len(result['failures'])} 项；空结果不会被视为成功。")
+                else: st.success(f"逐项拆分完成，本次完成 {result['completed']} 项；已完成项支持断点跳过。")
+            except Exception as exc:
+                logger.exception("Atomization button failed project=%s",project_id)
+                st.error(f"模型拆分失败：{type(exc).__name__}: {exc}。已完成项已保存，可再次点击断点续跑。")
         audit=st.session_state.get(f"atom_audit_{project_id}")
         if audit: st.write("覆盖审计",audit)
         atom_rows=_trace_rows(service,project_id).get("atomic_requirements",[])
         if atom_rows:
             editable=st.data_editor(atom_rows,hide_index=True,use_container_width=True,num_rows="dynamic",key=f"atom_review_{project_id}")
             if st.button("保存人工审核结果",key=f"save_atoms_{project_id}"):
-                service.save_reviewed_atoms(project_id,editable.to_dict("records") if hasattr(editable,"to_dict") else list(editable)); st.success("已保存；拆分、合并和遗漏补充可通过增删及编辑行完成。")
+                try:
+                    service.save_reviewed_atoms(project_id,editable.to_dict("records") if hasattr(editable,"to_dict") else list(editable)); st.success("已保存；拆分、合并和遗漏补充可通过增删及编辑行完成。")
+                except Exception as exc:
+                    logger.exception("Saving reviewed atoms failed project=%s",project_id); st.error(f"保存审核结果失败：{type(exc).__name__}: {exc}")
 
     with st.container(border=True):
         st.write("**步骤4：HTML 站点静态分析；步骤5：Playwright 自动探索**")
@@ -83,12 +118,15 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                 "上传离线 HTML", type=["html", "htm"], key=f"offline_html_{project_id}"
             )
             if st.button("分析页面元素", disabled=not upload, key=f"parse_html_{project_id}"):
-                result = service.analyze_offline_html(project_id, upload.name, upload.getvalue())
-                st.success(
-                    f"页面“{result['page']['title']}”提取 "
-                    f"{len(result['elements'])} 个可交互元素。"
-                )
-                st.rerun()
+                progress=st.progress(0,text="读取并静态解析 HTML（不会启动 Playwright）")
+                try:
+                    result = service.analyze_offline_html(project_id, upload.name, upload.getvalue(),include_elements=False)
+                    progress.progress(1.0,text=f"静态分析完成，用时 {result['elapsed_seconds']:.2f} 秒")
+                    st.success(f"页面 {result['page_count']}；元素 {result['element_count']}；表单 {result['form_count']}；按钮 {result['button_count']}；输入控件 {result['input_count']}；用时 {result['elapsed_seconds']:.2f} 秒。")
+                    for warning in result["warnings"]: st.warning(warning)
+                except Exception as exc:
+                    logger.exception("Static HTML button failed project=%s file=%s",project_id,getattr(upload,"name",""))
+                    progress.empty(); st.error(f"HTML 静态分析失败：{type(exc).__name__}: {exc}。详情见 logs/streamlit.log。")
         else:
             package = st.file_uploader(
                 "上传离线站点 ZIP", type=["zip"], key=f"offline_zip_{project_id}"
@@ -96,14 +134,17 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
             if st.button(
                 "安全解压并解析全部页面", disabled=not package, key=f"parse_zip_{project_id}"
             ):
-                st.session_state[f"site_result_{project_id}"] = service.analyze_site_zip(
-                    project_id, package.name, package.getvalue()
-                )
+                try:
+                    site_result=service.analyze_site_zip(project_id,package.name,package.getvalue())
+                    st.session_state[f"site_result_{project_id}"]={"site_package_id":site_result["site_package_id"],"entry_candidates":site_result["entry_candidates"],"page_count":len(site_result["pages"]),"missing_count":len(site_result["missing_resources"])}
+                except Exception as exc:
+                    logger.exception("ZIP analysis failed project=%s",project_id)
+                    st.error(f"ZIP 分析失败：{type(exc).__name__}: {exc}")
             site = st.session_state.get(f"site_result_{project_id}")
             if site:
                 st.caption(
-                    f"站点包 {site['site_package_id']}：{len(site['pages'])} 页，"
-                    f"缺失资源 {len(site['missing_resources'])} 项"
+                    f"站点包 {site['site_package_id']}：{site['page_count']} 页，"
+                    f"缺失资源 {site['missing_count']} 项"
                 )
                 entry = st.selectbox(
                     "入口页面", site["entry_candidates"], key=f"site_entry_{project_id}"
@@ -114,20 +155,29 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                 else:
                     st.warning(f"动态探索不可用：{health.get('status')}。{health.get('repair','')}")
                 if st.button("自动理解站点并安全探索",type="primary",disabled=not health.get("available"),key=f"explore_site_{project_id}"):
-                    with st.status("正在自动理解页面并执行安全探索",expanded=True):
-                        result=service.auto_explore_site_package(project_id,site["site_package_id"],entry)
-                    st.session_state[f"explore_result_{project_id}"]=result; st.success(f"完成 {len(result.get('events',[]))} 个观测动作。")
+                    try:
+                        with st.status("正在独立子进程中执行安全探索",expanded=True): result=service.auto_explore_site_package(project_id,site["site_package_id"],entry)
+                        summary={"event_count":len(result.get("events",[])),"blocked_count":len(result.get("blocked_requests",[])),"final_url":result.get("final_url",""),"return_code":result.get("return_code",0),"failure_reason":result.get("failure_reason","")}
+                        st.session_state[f"explore_result_{project_id}"]=summary
+                        if summary["return_code"] or summary["failure_reason"]: st.error(f"动态探索失败：{summary['failure_reason']}")
+                        else: st.success(f"完成 {summary['event_count']} 个观测动作。")
+                    except Exception as exc:
+                        logger.exception("Playwright exploration failed project=%s",project_id)
+                        st.error(f"动态探索子进程失败：{type(exc).__name__}: {exc}。Streamlit 后端仍保持运行。")
                 result=st.session_state.get(f"explore_result_{project_id}")
                 if result:
-                    st.write("自动探索摘要",{"动作数":len(result.get("events",[])),"外部请求阻止数":len(result.get("blocked_requests",[])),"最终页面":result.get("final_url","")})
-                    with st.expander("高级/调试：原始探索证据"): st.json(result)
+                    st.write("自动探索摘要",result)
 
     with st.container(border=True):
         st.write("**步骤6：需求—页面语义绑定**")
         st.caption("系统结合需求、简化DOM和Playwright观测自动绑定；关键词只用于召回候选。")
         if st.button("自动理解站点并绑定需求",type="primary",key=f"semantic_bind_{project_id}"):
-            with st.status("正在理解需求与页面语义",expanded=True): binding=service.auto_bind_requirements(project_id)
-            st.session_state[f"binding_result_{project_id}"]=binding
+            try:
+                with st.status("正在理解需求与页面语义",expanded=True): binding=service.auto_bind_requirements(project_id)
+                st.session_state[f"binding_result_{project_id}"]={"confirmed":binding["confirmed"],"need_human_confirm":binding["need_human_confirm"],"model":binding["model"],"bindings":binding["bindings"][:100]}
+            except Exception as exc:
+                logger.exception("Semantic binding failed project=%s",project_id)
+                st.error(f"语义绑定失败：{type(exc).__name__}: {exc}")
         binding=st.session_state.get(f"binding_result_{project_id}")
         if binding:
             st.write({"自动确认":binding["confirmed"],"待人工确认":binding["need_human_confirm"],"模型":binding["model"]})
@@ -149,30 +199,33 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                 key=f"binding_review_{project_id}",
             )
             if st.button("保存绑定确认", key=f"save_binding_review_{project_id}"):
-                service.save_binding_reviews(
-                    project_id,
-                    editable_bindings.to_dict("records")
-                    if hasattr(editable_bindings, "to_dict")
-                    else list(editable_bindings),
-                )
-                st.success("绑定确认已保存。")
-                st.rerun()
+                try:
+                    service.save_binding_reviews(project_id,editable_bindings.to_dict("records") if hasattr(editable_bindings,"to_dict") else list(editable_bindings))
+                    st.success("绑定确认已保存。")
+                    st.rerun()
+                except Exception as exc:
+                    logger.exception("Saving binding review failed project=%s",project_id); st.error(f"保存绑定确认失败：{type(exc).__name__}: {exc}")
 
     rows = _trace_rows(service, project_id)
     labels = [
         ("requirement_hierarchy", "需求层级"),
         ("atomic_requirements", "原子需求"),
-        ("html_elements", "HTML 元素"),
         ("requirement_element_links", "需求—元素匹配"),
         ("atomic_coverage_matrix", "覆盖矩阵"),
     ]
     available = [(key, label) for key, label in labels if rows.get(key)]
     if not available:
         st.info("完成需求结构解析后，这里会显示层级、原子需求和覆盖情况。")
-        return
-    for tab, (key, _label) in zip(st.tabs([label for _, label in available]), available):
-        with tab:
-            st.dataframe(rows[key], use_container_width=True, hide_index=True)
+    else:
+        for tab, (key, _label) in zip(st.tabs([label for _, label in available]), available):
+            with tab:
+                st.dataframe(rows[key], use_container_width=True, hide_index=True)
+
+    element_page=st.number_input("HTML 元素页码",min_value=1,value=1,step=1,key=f"html_element_page_{project_id}")
+    element_result=service.list_html_elements_page(project_id,int(element_page),100)
+    if element_result["total"]:
+        st.caption(f"HTML 元素共 {element_result['total']} 项；当前第 {element_result['page']}/{element_result['pages']} 页，每页最多 100 项。")
+        st.dataframe(element_result["rows"],use_container_width=True,hide_index=True)
 
 
 def render_case_optimization_panel(service: Any, project_id: str) -> None:
