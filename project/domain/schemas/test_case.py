@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Literal
 
 from pydantic import (
     BaseModel,
@@ -23,6 +23,30 @@ def _string_list(value: Any) -> List[str]:
     if isinstance(value, (list, tuple, set)):
         return [str(item).strip() for item in value if str(item).strip()]
     return [str(value).strip()] if str(value).strip() else []
+
+
+class StructuredExpectedResult(BaseModel):
+    page_change: str = ""
+    element_change: str = ""
+    visible_message: str = ""
+    data_change: str = ""
+    online_confirmation: str = ""
+
+
+class StructuredTestStep(BaseModel):
+    step_no: int = Field(ge=1)
+    page_id: str = ""
+    page_name: str = ""
+    region: str = ""
+    element_id: str = ""
+    element_name: str = ""
+    element_type: str = ""
+    action: Literal["click", "input", "select", "check", "wait", "observe"]
+    input_value: str = ""
+    instruction: str = Field(min_length=1)
+    expected_result: StructuredExpectedResult
+    evidence_source: str = ""
+    need_human_confirm: bool = False
 
 
 class TestCase(BaseModel):
@@ -58,6 +82,7 @@ class TestCase(BaseModel):
     expected_source: str = "inferred_pending_confirmation"
     offline_verifiable: bool = False
     online_verification_items: List[str] = Field(default_factory=list)
+    structured_steps: List[StructuredTestStep] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

@@ -38,3 +38,23 @@ def test_invalid_settings_have_clear_error(tmp_path: Path) -> None:
         Settings.from_env(
             {"OLLAMA_BASE_URL": "localhost:11434"}, env_file=tmp_path / "none"
         )
+
+
+def test_large_context_and_generation_aliases_are_supported(tmp_path: Path) -> None:
+    configured = Settings.from_env(
+        {
+            "OLLAMA_MODEL": "qwen3.6:35b",
+            "OLLAMA_AUDIT_MODEL": "qwen3.6:35b",
+            "OLLAMA_VISION_MODEL": "qwen3-vl:8b",
+            "OLLAMA_NUM_CTX": "262144",
+            "OLLAMA_NUM_PREDICT": "32768",
+            "OLLAMA_TIMEOUT": "900",
+            "OLLAMA_MAX_RETRIES": "1",
+        },
+        env_file=tmp_path / "none",
+    )
+    assert configured.test_case_model == "qwen3.6:35b"
+    assert configured.requirement_auditor_model == "qwen3.6:35b"
+    assert configured.page_understanding_model == "qwen3-vl:8b"
+    assert configured.ollama_num_ctx == 262144
+    assert configured.ollama_structured_num_predict == 32768

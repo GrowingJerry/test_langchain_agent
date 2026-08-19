@@ -14,7 +14,7 @@ from langchain.agents.middleware import (
 )
 from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from pydantic import ValidationError
 
 from agents.test_case.context import AgentRuntimeContext
@@ -55,6 +55,18 @@ class TestCaseAgent:
             middleware=self._middleware(),
             name="project_test_case_agent",
         )
+        # GenerationPackage already contains the complete project-scoped facts.
+        # A tool-free graph prevents local models from repeatedly retrieving the
+        # same context and exhausting LangGraph's recursion budget before they
+        # submit the structured response.
+        self.package_graph = create_agent(
+            model=self.model,
+            tools=[],
+            system_prompt=TEST_CASE_AGENT_SYSTEM_PROMPT,
+            response_format=ProviderStrategy(GeneratedCaseBundle),
+            middleware=self._middleware(),
+            name="project_test_case_package_agent",
+        )
 
     def _middleware(self) -> List[Any]:
         settings = self.runtime.settings
@@ -87,6 +99,7 @@ class TestCaseAgent:
         self,
         request: TestCaseAgentRequest,
         progress_callback: Callable[[dict[str, str]], None] | None = None,
+        generation_package: dict[str, Any] | None = None,
     ) -> GeneratedCaseBundle:
         """Run one finite Agent invocation; callers own deterministic fallback behavior."""
         self.runtime.reset_observations()
@@ -98,12 +111,19 @@ class TestCaseAgent:
             request.scenario_ids,
             request.auto_case_count,
         )
-        prefetched = self._prefetch_required_context(request)
+        prefetched = [] if generation_package is not None else self._prefetch_required_context(request)
+        if generation_package is not None:
+            prompt += (
+                "\n以下 GenerationPackage 是本次唯一、完整且已按当前项目限定的生成输入。"
+                "不得重新检索或编造包外页面和控件；一次返回当前需求所需的全部用例、"
+                "coverage_plan 和 coverage_result：\n"
+                + json.dumps(generation_package, ensure_ascii=False, default=str)
+            )
         if prefetched:
             prompt += (
                 "\n以下是运行时通过当前项目只读工具预取的实际结果。不得重复调用这些"
                 "目标工具；只能使用其中事实：\n"
-                + json.dumps(prefetched, ensure_ascii=False, default=str)[:24000]
+                + json.dumps(prefetched, ensure_ascii=False, default=str)
             )
         try:
             graph_input = {"messages": [{"role": "user", "content": prompt}]}
@@ -116,10 +136,11 @@ class TestCaseAgent:
                         + 5
                     )
                 }
+            graph = self.package_graph if generation_package is not None else self.graph
             if progress_callback is None:
-                state = self.graph.invoke(graph_input, config=graph_config)
+                state = graph.invoke(graph_input, config=graph_config)
             else:
-                state = self._stream_graph(graph_input, graph_config, progress_callback)
+                state = self._stream_graph(graph, graph_input, graph_config, progress_callback)
         except (ModelCallLimitExceededError, ToolCallLimitExceededError) as exc:
             raise AgentCallLimitError(
                 f"Test-case Agent call limit exceeded: {exc}"
@@ -168,13 +189,14 @@ class TestCaseAgent:
 
     def _stream_graph(
         self,
+        graph: Any,
         graph_input: dict[str, Any],
         graph_config: dict[str, Any],
         callback: Callable[[dict[str, str]], None],
     ) -> dict[str, Any]:
         """Consume LangGraph token/update streams and retain the final structured state."""
         state: dict[str, Any] = {}
-        for item in self.graph.stream(
+        for item in graph.stream(
             graph_input, config=graph_config, stream_mode=["messages", "updates"]
         ):
             mode, data = item if isinstance(item, tuple) and len(item) == 2 else ("updates", item)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import json
+import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional
 
 import requests
@@ -29,6 +31,8 @@ from domain.exceptions import (
 from domain.schemas.test_case import TestCase
 from infrastructure.llm.ollama_health import OllamaHealthClient
 from application.services.fallback_generation_service import FallbackGenerationService
+from application.services.generation_package import build_generation_package
+from infrastructure.runtime.generation_run_log import GenerationRunLog
 
 
 GenerationMode = Literal["agent", "model_direct", "rule_fallback", "manual"]
@@ -97,6 +101,12 @@ class GenerationResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     used_tool_names: List[str] = Field(default_factory=list)
     retrieved_source_chunk_ids: List[str] = Field(default_factory=list)
+    diagnostic_run_id: str = ""
+    diagnostic_log_path: str = ""
+    diagnostic_bundle_path: str = ""
+    context_fingerprints: List[str] = Field(default_factory=list)
+    agent_failure: str = ""
+    agent_direct_context_equal: bool | None = None
 
 
 AgentBuilder = Callable[[AgentRuntimeContext], Any]
@@ -134,14 +144,54 @@ class GenerationService:
     ) -> GenerationResult:
         """Validate, generate, score, persist, and return one explicit-mode result."""
         self._validate_scope(request)
+        if len(request.requirement_ids) > 1:
+            raise ValueError("每次模型调用只能整批生成一个最低功能需求；请使用需求批处理入口")
+        run_log = GenerationRunLog(Path(__file__).resolve().parents[2], request.project_id)
+        started = time.monotonic()
         self._emit(progress_callback, "status", "正在读取需求、场景和项目知识…")
         contexts = self._build_contexts(request)
+        packages = [
+            build_generation_package(
+                self.manager,
+                context,
+                num_ctx=self.settings.ollama_num_ctx,
+                num_predict=self.settings.ollama_structured_num_predict,
+            )
+            for context in contexts
+        ]
+        fingerprints = [item["fingerprint"] for item in packages]
+        run_log.artifact("01-input-summary.json", request.model_dump(mode="json"))
+        run_log.artifact("02-normalized-context.json", packages)
+        run_log.event(
+            "需求生成",
+            "构建统一 GenerationPackage 完成",
+            model=self.settings.test_case_model,
+            fingerprints=fingerprints,
+            estimated_tokens=[item["token_estimate_after"] for item in packages],
+            num_ctx=self.settings.ollama_num_ctx,
+            num_predict=self.settings.ollama_structured_num_predict,
+            trimmed_fields=[item["trimmed_fields"] for item in packages],
+        )
+        self._emit(
+            progress_callback,
+            "status",
+            f"模型 {self.settings.test_case_model}；输入约 "
+            f"{sum(item['token_estimate_after'] for item in packages)} tokens；"
+            f"num_ctx={self.settings.ollama_num_ctx}；"
+            f"num_predict={self.settings.ollama_structured_num_predict}；"
+            f"日志 {run_log.log_path}",
+        )
+        if any(item["may_exceed_context"] for item in packages):
+            run_log.finish("failed", error="context_window_exceeded", fingerprints=fingerprints)
+            raise StructuredOutputError("GenerationPackage 在证据优先压缩后仍可能超过配置上下文")
         mode: GenerationMode
         fallback_reason = ""
         warnings: List[str] = []
         used_tool_names: List[str] = []
         retrieved_chunk_ids: List[str] = []
         overall_missing: List[str] = []
+        agent_failure = ""
+        agent_direct_context_equal: bool | None = None
 
         if request.requested_mode == "manual":
             mode = "manual"
@@ -174,11 +224,14 @@ class GenerationService:
                             auto_case_count=request.auto_case_count,
                         )
                     generate_parameters = inspect.signature(agent.generate).parameters
-                    bundle = (
-                        agent.generate(agent_request, progress_callback=progress_callback)
-                        if "progress_callback" in generate_parameters
-                        else agent.generate(agent_request)
-                    )
+                    agent_kwargs: Dict[str, Any] = {}
+                    if "progress_callback" in generate_parameters:
+                        agent_kwargs["progress_callback"] = progress_callback
+                    if "generation_package" in generate_parameters:
+                        agent_kwargs["generation_package"] = packages[0]["package"]
+                    run_log.artifact("03-model-request.json", {"mode": "agent", "fingerprints": fingerprints, "packages": packages})
+                    run_log.event("需求生成", "调用 Agent：开始", mode="agent", fingerprint=fingerprints[0] if fingerprints else "")
+                    bundle = agent.generate(agent_request, **agent_kwargs)
                     bundle = (
                         bundle
                         if isinstance(bundle, GeneratedCaseBundle)
@@ -191,40 +244,45 @@ class GenerationService:
                     overall_missing = bundle.overall_missing_information
                     warnings.extend(bundle.warnings)
                     self._validate_agent_cases(canonical_cases, request)
-                except (
-                    AgentCallLimitError,
-                    AgentExecutionError,
-                    ConfigurationError,
-                    ModelUnavailableError,
-                    StructuredOutputError,
-                    ValidationError,
-                    TimeoutError,
-                ) as exc:
+                    run_log.artifact("04-model-raw-response.json", bundle.model_dump(mode="json"))
+                    run_log.event("需求生成", "调用 Agent：完成", case_count=len(canonical_cases))
+                except Exception as exc:  # noqa: BLE001 - diagnostics must capture every chain failure.
                     agent_failure = f"{type(exc).__name__}: {exc}"
+                    run_log.failure("需求生成-Agent", exc, fingerprint=fingerprints[0] if fingerprints else "")
+                    self._emit(progress_callback, "error", f"Agent链生成失败：{agent_failure}")
+                    self._emit(progress_callback, "status", "系统将使用完全相同的 GenerationPackage 切换到 Direct 模式。")
                     try:
                         canonical_cases = self._generate_with_direct_model(
-                            contexts, request, agent_failure, progress_callback
+                            packages, request, agent_failure, progress_callback, run_log
                         )
+                        direct_fingerprints = [item["fingerprint"] for item in packages]
+                        agent_direct_context_equal = fingerprints == direct_fingerprints
+                        if not agent_direct_context_equal:
+                            raise StructuredOutputError("Agent 与 Direct 上下文指纹不一致")
                         mode = "model_direct"
                         fallback_reason = ""
                         warnings.append(
                             f"LangChain Agent 失败，已改用同一 Ollama 模型直接生成：{agent_failure}"
                         )
+                        run_log.event("需求生成", "Direct 完成", fingerprint_equal=True, case_count=len(canonical_cases))
                     except Exception as direct_exc:
-                        mode = "rule_fallback"
-                        fallback_reason = (
-                            f"{agent_failure}; direct_model_failed="
-                            f"{type(direct_exc).__name__}: {direct_exc}"
+                        run_log.failure("需求生成-Direct", direct_exc)
+                        run_log.finish(
+                            "failed",
+                            error=f"{type(direct_exc).__name__}: {direct_exc}",
+                            agent_failure=agent_failure,
+                            fingerprints=fingerprints,
                         )
-                        warnings.append(
-                            "Agent 和直连大模型生成均失败，已执行确定性规则 fallback。"
-                        )
-                        canonical_cases = self.fallback_service.generate(
-                            contexts, request.case_count, request.case_type, fallback_reason
-                        )
+                        run_log.diagnostic_zip()
+                        raise StructuredOutputError(
+                            f"Agent 与 Direct 均失败，已停止且未保存空结果：{agent_failure}; "
+                            f"direct={type(direct_exc).__name__}: {direct_exc}"
+                        ) from direct_exc
 
         if not canonical_cases:
             raise StructuredOutputError("Generation produced no test cases")
+        if mode in ("agent", "model_direct"):
+            canonical_cases = self._validate_and_render_detailed_cases(canonical_cases, packages)
         metadata = self._generation_metadata(request)
         self._emit(progress_callback, "status", "正在校验质量并保存测试用例…")
         run_id = self.manager.create_generation_run(
@@ -241,6 +299,11 @@ class GenerationService:
         records = self._score_and_persist(
             request, contexts, canonical_cases, run_id, mode, fallback_reason, metadata
         )
+        run_log.artifact("05-parsed-output.json", [record.persistence_data for record in records])
+        run_log.artifact("06-validation-result.json", [record.quality for record in records])
+        run_log.artifact("07-persistence-result.json", {"case_count": len(records), "generation_run_id": run_id})
+        run_log.finish("completed", mode=mode, case_count=len(records), elapsed_seconds=round(time.monotonic()-started, 3), fingerprints=fingerprints)
+        diagnostic_bundle = run_log.diagnostic_zip()
         if not overall_missing:
             overall_missing = list(
                 dict.fromkeys(
@@ -259,6 +322,12 @@ class GenerationService:
             warnings=warnings,
             used_tool_names=used_tool_names,
             retrieved_source_chunk_ids=retrieved_chunk_ids,
+            diagnostic_run_id=run_log.run_id,
+            diagnostic_log_path=str(run_log.log_path),
+            diagnostic_bundle_path=str(diagnostic_bundle),
+            context_fingerprints=fingerprints,
+            agent_failure=agent_failure,
+            agent_direct_context_equal=agent_direct_context_equal,
         )
 
     def _validate_scope(self, request: GenerationRequest) -> None:
@@ -372,17 +441,20 @@ class GenerationService:
 
     def _generate_with_direct_model(
         self,
-        contexts: List[Dict[str, Any]],
+        packages: List[Dict[str, Any]],
         request: GenerationRequest,
         agent_failure: str,
         progress_callback: Callable[[dict[str, str]], None] | None = None,
+        run_log: GenerationRunLog | None = None,
     ) -> List[TestCase]:
         if self.direct_model_generator is not None:
             return self._prepare_model_direct_cases(
-                self.direct_model_generator(contexts, request, agent_failure),
+                self.direct_model_generator(packages, request, agent_failure),
                 request,
             )
-        payload = self._direct_model_payload(contexts, request, agent_failure)
+        payload = self._direct_model_payload(packages, request, agent_failure)
+        if run_log:
+            run_log.artifact("03-model-request.json", {"mode": "direct", "payload": payload, "fingerprints": [item["fingerprint"] for item in packages]})
         payload["stream"] = bool(progress_callback)
         response = requests.post(
             f"{self.settings.ollama_base_url.rstrip('/')}/api/chat",
@@ -409,13 +481,17 @@ class GenerationService:
             data["message"] = {**(data.get("message") or {}), "content": "".join(content_parts)}
         else:
             data = response.json()
+        if run_log:
+            run_log.artifact("04-model-raw-response.json", data)
         content = str(((data.get("message") or {}).get("content")) or "").strip()
         parsed = json.loads(content)
         try:
             bundle = GeneratedCaseBundle.model_validate(parsed)
             cases = bundle.cases
-        except ValidationError:
-            cases = self._coerce_direct_model_json_to_cases(parsed, contexts, request)
+        except ValidationError as exc:
+            raise StructuredOutputError(
+                "Direct 模型未返回完整 GeneratedCaseBundle；已停止，禁止转换为粗糙模板用例"
+            ) from exc
         return self._prepare_model_direct_cases(cases, request)
 
     def _prepare_model_direct_cases(
@@ -429,6 +505,137 @@ class GenerationService:
         ]
         self._validate_agent_cases(repaired_cases, request)
         return repaired_cases
+
+    @staticmethod
+    def _validate_and_render_detailed_cases(
+        cases: List[TestCase], packages: List[Dict[str, Any]]
+    ) -> List[TestCase]:
+        valid_pages = {
+            str(page.get("page_id") or "")
+            for wrapped in packages
+            for page in wrapped.get("package", {}).get("page_evidence", [])
+            if page.get("binding_status") == "confirmed" and page.get("page_id")
+        }
+        valid_elements = {
+            str(element.get("element_id") or "")
+            for wrapped in packages
+            for page in wrapped.get("package", {}).get("page_evidence", [])
+            if page.get("binding_status") == "confirmed"
+            for element in page.get("elements", [])
+            if element.get("element_id") and element.get("binding_status") == "confirmed"
+        }
+        element_evidence: Dict[str, Dict[str, Any]] = {}
+        observed_messages: set[str] = set()
+        requirement_text = ""
+        for wrapped in packages:
+            requirement_text += json.dumps(
+                wrapped.get("package", {}).get("requirement", {}), ensure_ascii=False
+            )
+            for page in wrapped.get("package", {}).get("page_evidence", []):
+                for observation in page.get("playwright_observations", []):
+                    observed_messages.update(
+                        str(value)
+                        for value in (observation.get("observed_result") or {}).values()
+                        if isinstance(value, str) and value
+                    )
+                for element in page.get("elements", []):
+                    element_id = str(element.get("element_id") or "")
+                    if element_id and element.get("binding_status") == "confirmed":
+                        element_evidence[element_id] = {
+                            "page_id": page.get("page_id") or "",
+                            "page_name": page.get("title") or page.get("page_name") or "",
+                            "region": element.get("region") or element.get("position") or "",
+                            "element_name": element.get("label") or element.get("text") or element.get("name") or "",
+                            "element_type": element.get("element_type") or element.get("tag") or "",
+                        }
+        rendered: List[TestCase] = []
+        for case in cases:
+            if valid_pages and not case.structured_steps:
+                raise StructuredOutputError(f"用例 {case.case_id} 缺少 structured_steps")
+            if not case.structured_steps:
+                rendered.append(case)
+                continue
+            instructions: List[str] = []
+            expected: List[str] = []
+            normalized_steps = []
+            case_needs_confirmation = case.need_human_confirm
+            for index, original_step in enumerate(case.structured_steps, 1):
+                step = original_step
+                if not step.element_id and step.action in {"click", "input", "select", "check"}:
+                    matches = [
+                        element_id
+                        for element_id, item in element_evidence.items()
+                        if item.get("element_name") and str(item["element_name"]) in step.instruction
+                    ]
+                    if len(matches) == 1:
+                        step = step.model_copy(update={"element_id": matches[0]})
+                evidence = element_evidence.get(step.element_id)
+                if evidence:
+                    element_name = step.element_name or str(evidence["element_name"])
+                    if element_name and "〖" not in element_name:
+                        element_name = f"〖{element_name}〗"
+                    step = step.model_copy(update={
+                        "page_id": step.page_id or evidence["page_id"],
+                        "page_name": step.page_name or evidence["page_name"],
+                        "region": step.region or evidence["region"],
+                        "element_name": element_name,
+                        "element_type": step.element_type or evidence["element_type"],
+                    })
+                if step.step_no != index:
+                    raise StructuredOutputError(f"用例 {case.case_id} 步骤编号不连续")
+                if step.page_id and step.page_id not in valid_pages:
+                    raise StructuredOutputError(f"用例 {case.case_id} 使用未确认页面 {step.page_id}")
+                if step.element_id and step.element_id not in valid_elements:
+                    raise StructuredOutputError(f"用例 {case.case_id} 使用未确认元素 {step.element_id}")
+                if step.action in {"click", "input", "select", "check"}:
+                    if not step.page_name and not step.region:
+                        raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少页面或区域")
+                    if not step.element_name or "〖" not in step.element_name or "〗" not in step.element_name:
+                        raise StructuredOutputError(f"用例 {case.case_id} 第{index}步控件名称未使用〖〗")
+                if step.action in {"input", "select"} and not step.input_value:
+                    raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少具体输入值")
+                result = step.expected_result
+                if (
+                    result.visible_message
+                    and result.visible_message not in observed_messages
+                    and result.visible_message not in requirement_text
+                ):
+                    result = result.model_copy(update={
+                        "visible_message": "",
+                        "online_confirmation": "页面实际提示内容缺少需求或观测证据，待联机确认",
+                    })
+                    step = step.model_copy(update={
+                        "expected_result": result,
+                        "need_human_confirm": True,
+                    })
+                    case_needs_confirmation = True
+                result_parts = [result.page_change, result.element_change, result.visible_message, result.data_change, result.online_confirmation]
+                observable = "；".join(item for item in result_parts if item)
+                if not observable:
+                    raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少可观察预期")
+                if any(word in observable for word in ("正常显示", "正确处理")):
+                    raise StructuredOutputError(f"用例 {case.case_id} 第{index}步包含主观预期")
+                if step.action in {"click", "input", "select", "check"}:
+                    location = f"在〖{step.page_name}〗页面"
+                    if step.region:
+                        location += f"的{step.region}"
+                    action_text = {
+                        "click": f"点击{step.element_name}",
+                        "input": f"在{step.element_name}中输入“{step.input_value}”",
+                        "select": f"从{step.element_name}选择“{step.input_value}”",
+                        "check": f"勾选{step.element_name}",
+                    }[step.action]
+                    instruction = f"{location}，{action_text}。"
+                else:
+                    instruction = step.instruction
+                instructions.append(instruction)
+                expected.append(observable)
+                normalized_steps.append(step)
+            missing = list(case.missing_information)
+            if case_needs_confirmation and "缺少可支持部分页面提示的需求或观测证据" not in missing:
+                missing.append("缺少可支持部分页面提示的需求或观测证据")
+            rendered.append(case.model_copy(update={"structured_steps": normalized_steps, "test_steps": instructions, "expected_results": expected, "need_human_confirm": case_needs_confirmation, "missing_information": missing}))
+        return rendered
 
     @staticmethod
     def _repair_step_result_alignment(case: TestCase) -> TestCase:
@@ -471,12 +678,13 @@ class GenerationService:
             else str(context.get("requirement_id") or "")
         )
         title = (
-            str(requirement.get("title") or "").strip()
+            str(requirement.get("title") or requirement.get("name") or "").strip()
             or str(parsed.get("title") or parsed.get("测试用例标题") or "").strip()
             or f"{request.case_type} for {requirement_id}"
         )
         description = str(
             requirement.get("description")
+            or requirement.get("functional_description")
             or requirement.get("requirement_text")
             or requirement.get("text")
             or ""
@@ -492,13 +700,13 @@ class GenerationService:
         )
         source_chunk_ids = [
             str(row.get("chunk_id") or "")
-            for row in context.get("related_chunks") or []
+            for row in context.get("related_chunks") or context.get("source_excerpt") or []
             if row.get("chunk_id")
         ]
         source_documents = list(
             dict.fromkeys(
                 str(row.get("filename") or row.get("source_document") or "")
-                for row in context.get("related_chunks") or []
+                for row in context.get("related_chunks") or context.get("source_excerpt") or []
                 if row.get("filename") or row.get("source_document")
             )
         )
@@ -588,29 +796,11 @@ class GenerationService:
 
     def _direct_model_payload(
         self,
-        contexts: List[Dict[str, Any]],
+        packages: List[Dict[str, Any]],
         request: GenerationRequest,
         agent_failure: str,
     ) -> Dict[str, Any]:
-        compact_contexts = []
-        for context in contexts:
-            requirement = dict(context.get("requirement") or {})
-            scenarios = list(context.get("related_scenario_cards") or [])
-            chunks = [
-                {
-                    "chunk_id": row.get("chunk_id"),
-                    "filename": row.get("filename"),
-                    "content": str(row.get("content") or row.get("chunk_text") or "")[:1200],
-                }
-                for row in context.get("related_chunks") or []
-            ][:5]
-            compact_contexts.append({
-                "requirement_id": context.get("requirement_id"),
-                "requirement": requirement,
-                "related_scenario_cards": scenarios[:3],
-                "related_chunks": chunks,
-                "missing_information": context.get("missing_information") or [],
-            })
+        canonical_packages = [item["package"] for item in packages]
         schema_hint = {
             "cases": [
                 {
@@ -632,8 +822,20 @@ class GenerationService:
                     "need_human_confirm": False,
                     "missing_information": [],
                     "generation_mode": "model_direct",
+                    "structured_steps": [{
+                        "step_no": 1, "page_id": "from GenerationPackage or empty",
+                        "page_name": "string", "region": "string",
+                        "element_id": "from GenerationPackage or empty",
+                        "element_name": "〖控件名称〗", "element_type": "string",
+                        "action": "click", "input_value": "",
+                        "instruction": "在页面和区域中执行一个动作",
+                        "expected_result": {"page_change": "", "element_change": "可观察变化", "visible_message": "", "data_change": "", "online_confirmation": ""},
+                        "evidence_source": "requirement/html/playwright", "need_human_confirm": False,
+                    }],
                 }
             ],
+            "coverage_plan": [{"indicator_id": "string", "case_ids": ["TC-MODEL-001"], "scenario_types": ["normal"]}],
+            "coverage_result": {"covered_indicator_ids": [], "uncovered_indicator_ids": []},
             "overall_missing_information": [],
             "used_tool_names": [],
             "retrieved_source_chunk_ids": [],
@@ -663,7 +865,7 @@ class GenerationService:
             "JSON 结构示例：\n"
             + json.dumps(schema_hint, ensure_ascii=False)
             + "\n项目上下文：\n"
-            + json.dumps(compact_contexts, ensure_ascii=False, default=str)[:24000]
+            + json.dumps(canonical_packages, ensure_ascii=False, default=str)
         )
         prompt = (
             "You are a test-case generation model. The LangChain Agent failed, "
@@ -683,6 +885,9 @@ class GenerationService:
             + quantity_rule
             +
             "- test_steps and expected_results must have the same length and align by index.\n"
+            "- Generate all cases for this one requirement in this single response; include coverage_plan and coverage_result.\n"
+            "- Every case must include structured_steps. One step has exactly one action. UI steps must name page/region and wrap controls in 〖〗.\n"
+            "- page_id and element_id must exist in GenerationPackage; without confirmed evidence do not invent UI details.\n"
             "- requirement_ids may only use Target requirement_ids.\n"
             "- source_chunk_ids may only use chunk_id values present in project_context.\n"
             "- Generate cases for the selected test type, not the recommended type if different.\n"
@@ -690,7 +895,7 @@ class GenerationService:
             "Required JSON schema example:\n"
             + json.dumps(schema_hint, ensure_ascii=False)
             + "\n\nproject_context:\n"
-            + json.dumps(compact_contexts, ensure_ascii=False, default=str)[:24000]
+            + json.dumps(canonical_packages, ensure_ascii=False, default=str)
         )
         return {
             "model": self.settings.ollama_model,
@@ -699,7 +904,7 @@ class GenerationService:
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
-            "format": "json",
+            "format": GeneratedCaseBundle.model_json_schema(),
             "options": {
                 "temperature": self.settings.ollama_temperature,
                 "num_ctx": self.settings.ollama_num_ctx,

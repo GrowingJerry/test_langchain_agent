@@ -29,6 +29,16 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
         "这里不是另一套需求流程。请先在“资料上传”中上传文档；"
         "本区域只对已入库 DOCX 做 CSCI 结构化增强，并补充离线网页证据。"
     )
+    flow = service.workflow_status(project_id)
+    st.write("**流程状态**")
+    st.write({
+        "1 文档已上传": flow["document_uploaded"],
+        "2 需求树待确认": bool(flow["lowest_function_count"] and not flow["atom_review_passed"]),
+        "3 原子需求待确认": bool(flow["atom_count"] and not flow["atom_review_passed"]),
+        "4 HTML已分析": bool(flow["page_count"]),
+        "5 页面绑定待确认": bool(flow["pending_confirmation"]),
+        "6 可进入生成": bool(flow["atom_review_passed"] and flow["binding_completion"] > 0),
+    })
     documents = [
         row
         for row in service.document_summaries(project_id)
@@ -36,7 +46,8 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
         == ".docx"
     ]
     with st.container(border=True):
-        st.write("**步骤2：识别 3.2 子系统概述与 3.3 详细功能**")
+        st.write("**步骤2：识别并审核需求层级与最低可测试功能**")
+        st.info("机器将识别层级、功能描述、输入、处理和输出。请检查层级归属及四部分是否属于同一最低功能；不通过可修改或退回重新解析，确认后进入原子拆分。")
         if not documents:
             st.info("尚无 DOCX。请先切换到“资料上传”上传软件需求规格说明书。")
         else:
@@ -59,7 +70,7 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                     progress=st.progress(0,text="阶段 1/3：读取 DOCX 有序正文块")
                     started=time.monotonic()
                     try:
-                        progress.progress(.35,text="阶段 2/3：确定性识别 3.2/3.3 层级和最低功能")
+                        progress.progress(.35,text="阶段 2/3：按标题语义和层级确定性识别最低功能")
                         mode={"自动识别抽取方式（推荐）":"auto","规范CSCI结构抽取":"csci","通用AI需求抽取":"general"}[extraction_mode]
                         def extraction_progress(event):
                             progress.progress(min(.85,max(.1,float(event.get('index',0))/max(1,float(event.get('total',1))))),text=f"{event.get('stage','处理中')}：{event.get('object','')} {event.get('index',0)}/{event.get('total',1)}")
@@ -79,6 +90,7 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
 
     with st.container(border=True):
         st.write("**步骤3：功能描述无损拆分与覆盖审核**")
+        st.info("请对照原始功能描述检查遗漏、重复、拆分过粗和模型编造。可编辑、增删行完成补充、拆分或合并；保存后原子需求进入 HTML 绑定和用例覆盖计划。")
         workflow=service.workflow_status(project_id)
         no_testable=workflow.get("lowest_function_count",0)==0
         if no_testable: st.warning("最低可测功能数为 0，模型拆分已禁用。请先修复需求树解析结果。")
@@ -112,6 +124,7 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
 
     with st.container(border=True):
         st.write("**步骤4：HTML 站点静态分析；步骤5：Playwright 自动探索**")
+        st.info("通常只需确认页面、业务区域、关键控件、未命名/不唯一控件和 Playwright 异常，不需要逐个审核完整 DOM。")
         source_type = st.radio(
             "网页资料形式",
             ["单个 HTML", "多页面 ZIP"],
@@ -175,7 +188,7 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
 
     with st.container(border=True):
         st.write("**步骤6：需求—页面语义绑定**")
-        st.caption("系统结合需求、简化DOM和Playwright观测自动绑定；关键词只用于召回候选。")
+        st.caption("系统结合需求、简化DOM和Playwright观测推荐页面及元素；请检查绑定理由、置信度和待确认原因。关键词只用于召回候选。")
         funnel=service.binding_funnel(project_id); st.write("绑定数据漏斗",funnel)
         binding_disabled=funnel["最低可测功能"]==0 or funnel["HTML页面"]==0
         if funnel["最低可测功能"]==0: st.warning("最低可测功能为0，绑定未执行。")

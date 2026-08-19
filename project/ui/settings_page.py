@@ -1,6 +1,8 @@
 """Runtime system settings page."""
 
 import streamlit as st
+from config.settings import settings
+from infrastructure.llm.ollama_health import OllamaHealthClient
 from domain.rules.standard_knowledge import STANDARD_DOCX
 
 
@@ -25,4 +27,16 @@ def render_settings_page(config: dict) -> None:
         "审查时启用 Ollama", config["use_ollama_review"]
     )
     config["debug"] = st.checkbox("调试模式", config["debug"])
+    health = OllamaHealthClient(settings)
+    available = health.is_available()
+    st.subheader("本次模型请求配置")
+    st.json({
+        "当前测试用例模型": settings.test_case_model,
+        "配置的 num_ctx": settings.ollama_num_ctx,
+        "实际请求 num_ctx": settings.ollama_num_ctx,
+        "num_predict": settings.ollama_structured_num_predict,
+        "超时秒数": settings.ollama_timeout,
+        "模型服务可用": available,
+        "说明": "生成前会显示输入 token 估算；可能超限时按证据优先级压缩，仍超限则阻断。",
+    })
     st.session_state.runtime_config = config

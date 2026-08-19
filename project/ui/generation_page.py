@@ -97,7 +97,7 @@ def _execution_mode(config: dict[str, Any], key: str) -> str:
         ["Agent / 自动降级", "确定性规则"],
         horizontal=True,
         key=key,
-        help="保留模型和工具调用限制；Agent不可用时仍使用 rule_fallback。",
+        help="Agent失败时会显示真实原因，并使用完全相同的 GenerationPackage 切换到 Direct；Direct再失败则停止。",
     )
     return "auto" if selected.startswith("Agent") and config["use_ollama"] else "rule"
 
@@ -107,6 +107,31 @@ def _show_cases(payload: dict[str, Any], title: str) -> None:
     st.subheader(title)
     if result.get("fallback_reason"):
         st.warning(f"已执行 rule_fallback：{result['fallback_reason']}")
+    diagnostic_runs = result.get("diagnostic_runs") or []
+    for run in diagnostic_runs:
+        if run.get("agent_failure"):
+            st.warning(
+                f"Agent链生成失败：{run['agent_failure']}\n\n"
+                "系统已使用相同需求、原子需求和 HTML 证据切换到 Direct 模式。"
+            )
+        st.info(
+            f"需求 {run.get('requirement_id')} · 最终模式 {run.get('generation_mode')} · "
+            f"上下文指纹一致：{run.get('agent_direct_context_equal')} · "
+            f"运行 {run.get('diagnostic_run_id')} · 日志：{run.get('diagnostic_log_path')}"
+        )
+        bundle_path = run.get("diagnostic_bundle_path")
+        if bundle_path:
+            try:
+                with open(bundle_path, "rb") as stream:
+                    st.download_button(
+                        "导出本次诊断包",
+                        stream.read(),
+                        file_name=bundle_path.replace("\\", "/").split("/")[-1],
+                        mime="application/zip",
+                        key=f"diagnostic_{run.get('diagnostic_run_id')}",
+                    )
+            except OSError:
+                st.caption("诊断包暂不可读取，请查看日志路径。")
     missing = result.get("overall_missing_information") or []
     if missing:
         st.warning("缺失信息：" + "；".join(missing))

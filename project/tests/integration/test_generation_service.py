@@ -17,7 +17,7 @@ from infrastructure.exporters.project_documents import (
     export_project_excel,
     export_project_word,
 )
-from domain.exceptions import AgentExecutionError
+from domain.exceptions import AgentExecutionError, StructuredOutputError
 from domain.schemas.test_case import TestCase
 from application.services.generation_service import GenerationRequest, GenerationService
 from application.services.ui_application_service import UIApplicationService
@@ -333,18 +333,17 @@ def test_ollama_unavailable_uses_rule_fallback(workspace) -> None:
     assert result.fallback_reason == "ollama_unavailable"
 
 
-def test_invalid_agent_result_uses_rule_fallback(workspace) -> None:
+def test_invalid_agent_and_direct_result_stops_without_fake_fallback(workspace) -> None:
     manager, project_id, _ = workspace
-    result = GenerationService(
-        manager,
-        settings=enabled_settings(),
-        health_client=Health(),
-        agent_builder=lambda runtime: FakeAgent({"cases": [{"case_id": "broken"}]}),
-        direct_model_generator=lambda contexts, request, reason: (_ for _ in ()).throw(RuntimeError("direct failed")),
-    ).generate_test_cases(request(project_id))
-    assert result.generation_mode == "rule_fallback"
-    assert "ValidationError" in result.fallback_reason
-    assert result.warnings
+    with pytest.raises(StructuredOutputError, match="Agent 与 Direct 均失败"):
+        GenerationService(
+            manager,
+            settings=enabled_settings(),
+            health_client=Health(),
+            agent_builder=lambda runtime: FakeAgent({"cases": [{"case_id": "broken"}]}),
+            direct_model_generator=lambda contexts, request, reason: (_ for _ in ()).throw(RuntimeError("direct failed")),
+        ).generate_test_cases(request(project_id))
+    assert manager.list_generated_cases(project_id) == []
 
 
 def test_agent_tool_failure_uses_direct_model_before_rule_fallback(workspace) -> None:
@@ -362,6 +361,35 @@ def test_agent_tool_failure_uses_direct_model_before_rule_fallback(workspace) ->
     assert result.fallback_reason == ""
     assert result.cases[0].case.generation_mode == "model_direct"
     assert "tool failed" in result.warnings[0]
+
+
+def test_agent_and_direct_share_generation_package_fingerprint(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    captured: dict[str, Any] = {}
+
+    class PackageAwareFailingAgent:
+        def generate(self, request, generation_package=None, progress_callback=None):
+            captured["agent_package"] = generation_package
+            raise AgentExecutionError("forced chain failure")
+
+    def direct(packages, request, reason):
+        captured["direct_packages"] = packages
+        return [canonical_case(chunk_id, case_id="TC-DIRECT-PACKAGE")]
+
+    result = GenerationService(
+        manager,
+        settings=enabled_settings(),
+        health_client=Health(),
+        agent_builder=lambda runtime: PackageAwareFailingAgent(),
+        direct_model_generator=direct,
+    ).generate_test_cases(request(project_id))
+
+    assert result.generation_mode == "model_direct"
+    assert result.agent_direct_context_equal is True
+    assert captured["agent_package"] == captured["direct_packages"][0]["package"]
+    assert result.context_fingerprints == [captured["direct_packages"][0]["fingerprint"]]
+    assert Path(result.diagnostic_log_path).is_file()
+    assert Path(result.diagnostic_bundle_path).is_file()
 
 
 def test_direct_model_repairs_unpaired_step_result_without_rule_fallback(workspace) -> None:

@@ -379,7 +379,7 @@ class UIApplicationService:
         use_kb: bool,
         use_history: bool,
     ) -> Dict[str, Any]:
-        return ContextBuilder(self.manager, self.case_library).build(
+        context = ContextBuilder(self.manager, self.case_library).build(
             project_id,
             requirement_id,
             case_type,
@@ -388,6 +388,13 @@ class UIApplicationService:
             use_kb,
             use_history,
             persist=False,
+        )
+        from application.services.generation_package import build_generation_package
+        return build_generation_package(
+            self.manager,
+            context,
+            num_ctx=self.settings.ollama_num_ctx,
+            num_predict=self.settings.ollama_structured_num_predict,
         )
 
     def generate(
@@ -417,6 +424,7 @@ class UIApplicationService:
             "skipped": [],
             "failed": [],
             "cases": [],
+            "diagnostic_runs": [],
         }
         for index, requirement_id in enumerate(ordered_ids, 1):
             if requirement_id in completed and not force:
@@ -450,6 +458,17 @@ class UIApplicationService:
                 result = self.generate(request, progress_callback=relay)
                 dumped = result.model_dump(mode="json")
                 summary["cases"].extend(dumped.get("cases") or [])
+                summary["diagnostic_runs"].append({
+                    "requirement_id": requirement_id,
+                    "generation_mode": dumped.get("generation_mode"),
+                    "agent_failure": dumped.get("agent_failure"),
+                    "context_fingerprints": dumped.get("context_fingerprints") or [],
+                    "agent_direct_context_equal": dumped.get("agent_direct_context_equal"),
+                    "diagnostic_run_id": dumped.get("diagnostic_run_id"),
+                    "diagnostic_log_path": dumped.get("diagnostic_log_path"),
+                    "diagnostic_bundle_path": dumped.get("diagnostic_bundle_path"),
+                    "warnings": dumped.get("warnings") or [],
+                })
                 self.manager.create_generation_run(
                     base_request.project_id,
                     "requirement_batch_checkpoint",
@@ -742,6 +761,10 @@ class UIApplicationService:
                 page_id=str(row.get("page_id") or "")
                 element_id=str(row.get("confirmed_element_id") or "")
                 confirmed=bool(row.get("confirmed"))
+                confidence=float(row.get("confidence") or 0)
+                reason=str(row.get("reason") or "")
+                if confirmed and (confidence <= 0 or any(word in reason for word in ("无关","不相关","未找到匹配"))):
+                    raise ValueError("置信度为0或明确不相关的绑定不能确认；请选择其他页面/元素后重试")
                 if not link_id or page_id not in valid_pages:
                     continue
                 if kind == "element":

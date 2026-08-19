@@ -1,5 +1,6 @@
 from application.services.generation_service import GenerationRequest, GenerationService
 from domain.schemas.test_case import TestCase
+from domain.schemas.test_case import StructuredExpectedResult, StructuredTestStep
 
 
 def _case(case_id: str) -> TestCase:
@@ -51,3 +52,24 @@ def test_fallback_cases_receive_complete_project_scoped_traceability() -> None:
     assert all(case.page_ids == ["PAGE-1"] for case in cases)
     assert all(case.html_element_ids == ["EL-1"] for case in cases)
     assert all(case.playwright_observation_ids == ["OBS-1"] for case in cases)
+
+
+def test_structured_step_is_rendered_from_confirmed_html_evidence() -> None:
+    case = _case("TC-DETAILED").model_copy(update={"structured_steps": [
+        StructuredTestStep(
+            step_no=1,
+            element_id="EL-ADD",
+            action="click",
+            instruction="点击新增",
+            expected_result=StructuredExpectedResult(page_change="页面中央打开新增对话框"),
+        )
+    ]})
+    packages = [{"package": {"page_evidence": [{
+        "page_id": "PAGE-LIST", "title": "公告列表", "binding_status": "confirmed",
+        "elements": [{"element_id": "EL-ADD", "label": "新增公告", "element_type": "button", "region": "右上角操作区", "binding_status": "confirmed"}],
+    }]}}]
+
+    rendered = GenerationService._validate_and_render_detailed_cases([case], packages)[0]
+
+    assert rendered.test_steps == ["在〖公告列表〗页面的右上角操作区，点击〖新增公告〗。"]
+    assert rendered.expected_results == ["页面中央打开新增对话框"]

@@ -33,8 +33,8 @@ class Settings(BaseModel):
     test_case_model: str = "qwen3:8b"
     test_case_review_model: str = "qwen3:8b"
     ollama_timeout: int = Field(default=120, ge=1, le=3600)
-    ollama_num_ctx: int = Field(default=8192, ge=2048, le=131072)
-    ollama_structured_num_predict: int = Field(default=2048, ge=256, le=16384)
+    ollama_num_ctx: int = Field(default=8192, ge=2048, le=262144)
+    ollama_structured_num_predict: int = Field(default=2048, ge=256, le=65536)
     ollama_max_retries: int = Field(default=2, ge=0, le=10)
     ollama_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     ollama_extraction_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
@@ -126,6 +126,10 @@ class Settings(BaseModel):
             for field_name in ("vision_model", "page_understanding_model"):
                 if field_name.upper() not in source:
                     field_values[field_name] = legacy_vision
+        if source.get("OLLAMA_AUDIT_MODEL"):
+            field_values["requirement_auditor_model"] = source["OLLAMA_AUDIT_MODEL"]
+        if source.get("OLLAMA_NUM_PREDICT"):
+            field_values["ollama_structured_num_predict"] = source["OLLAMA_NUM_PREDICT"]
         return cls.model_validate(field_values)
 
     @property

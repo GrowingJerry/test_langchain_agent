@@ -1,6 +1,6 @@
 """Structured input and output schemas for the test-case Agent."""
 
-from typing import List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -41,3 +41,5 @@ class GeneratedCaseBundle(BaseModel):
     configuration_rule_ids: List[str] = Field(default_factory=list)
     scenario_validation_run_id: str = ""
     warnings: List[str] = Field(default_factory=list)
+    coverage_plan: List[Dict[str, Any]] = Field(default_factory=list)
+    coverage_result: Dict[str, Any] = Field(default_factory=dict)
