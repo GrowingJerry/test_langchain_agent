@@ -65,15 +65,18 @@ def analyze_site(root:Path)->dict[str,Any]:
     patterns={"a":"href","form":"action","iframe":"src","script":"src","link":"href","img":"src"}
     for path in html_files:
         relative=path.relative_to(root).as_posix(); content=path.read_text("utf-8",errors="replace"); page,elements=parse_offline_html(content,relative); refs=[]
+        compressed=re.sub(r"<!--.*?-->"," ",content,flags=re.S); compressed=re.sub(r"<(script|style)\b[^>]*>.*?</\1>"," ",compressed,flags=re.I|re.S); compressed=re.sub(r"<[^>]+>"," ",compressed); compressed=re.sub(r"\s+"," ",compressed).strip()[:8000]
         for tag,attr in patterns.items():
             for match in re.finditer(fr"<{tag}\b[^>]*\b{attr}\s*=\s*['\"]([^'\"]+)['\"]",content,re.I):
-                raw=match.group(1); parsed=urlparse(raw)
+                raw=match.group(1)
+                if raw.lower().startswith("data:"): refs.append({"kind":tag,"source":relative,"target":"[inline resource omitted]","external":False,"inline_omitted":True}); continue
+                parsed=urlparse(raw)
                 if parsed.scheme or raw.startswith("//"): refs.append({"kind":tag,"source":relative,"target":raw,"external":True}); continue
                 target=((path.parent/parsed.path).resolve() if parsed.path else path); exists=target.exists() and (target==root or root in target.parents)
                 item={"kind":tag,"source":relative,"target":raw,"resolved":target.relative_to(root).as_posix() if exists else "","external":False,"missing":not exists}
                 refs.append(item); relations.append(item)
                 if not exists: missing.append(item)
-        pages.append({**page,"entry_candidate":path.name.lower() in {"index.html","index.htm"},"references":refs,"element_count":len(elements)})
+        pages.append({**page,"entry_candidate":path.name.lower() in {"index.html","index.htm"},"references":refs,"element_count":len(elements),"visible_text_summary":compressed,"source_bytes":path.stat().st_size,"compressed_chars":len(compressed)})
     candidates=[x["path"] for x in pages if x["entry_candidate"]] or ([pages[0]["path"]] if pages else [])
     return {"pages":pages,"navigation_relations":[x for x in relations if x["kind"] in {"a","form","iframe"}],"missing_resources":missing,"entry_candidates":candidates}
 

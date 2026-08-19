@@ -1,6 +1,8 @@
 from pathlib import Path
 
-import fitz
+import pytest
+
+fitz = pytest.importorskip("fitz", reason="optional PyMuPDF dependency is not installed")
 
 from infrastructure.documents.ocr.base import OcrPageResult
 from infrastructure.documents.parsers.pymupdf_parser import PyMuPDFParser

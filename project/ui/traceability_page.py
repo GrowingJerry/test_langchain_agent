@@ -46,8 +46,9 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                 format_func=lambda row: str(row.get("filename") or row.get("document_id")),
                 key=f"csci_existing_doc_{project_id}",
             )
+            extraction_mode=st.radio("需求抽取方式",["自动识别抽取方式（推荐）","规范CSCI结构抽取","通用AI需求抽取"],horizontal=True,key=f"requirement_extraction_mode_{project_id}")
             if st.button(
-                "识别 3.2/3.3 完整需求树",
+                "抽取并写入统一需求树",
                 type="primary",
                 key=f"parse_existing_csci_{project_id}",
             ):
@@ -59,14 +60,18 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
                     started=time.monotonic()
                     try:
                         progress.progress(.35,text="阶段 2/3：确定性识别 3.2/3.3 层级和最低功能")
-                        result = service.analyze_csci_docx(project_id, source)
+                        mode={"自动识别抽取方式（推荐）":"auto","规范CSCI结构抽取":"csci","通用AI需求抽取":"general"}[extraction_mode]
+                        def extraction_progress(event):
+                            progress.progress(min(.85,max(.1,float(event.get('index',0))/max(1,float(event.get('total',1))))),text=f"{event.get('stage','处理中')}：{event.get('object','')} {event.get('index',0)}/{event.get('total',1)}")
+                        result = service.extract_requirement_document(project_id, source,mode,extraction_progress)
                         progress.progress(1.0,text=f"阶段 3/3：持久化完成，用时 {result['elapsed_seconds']:.2f} 秒")
                         summary={key:result[key] for key in ("section_32_count","section_33_count","testable_count","warnings","elapsed_seconds")}
                         st.session_state[f"csci_summary_{project_id}"]=summary
                         if result["node_count"] == 0:
                             st.error("解析结果为 0，已阻断模型拆分。请检查文档是否包含编号明确的 3.2/3.3 标题。")
                         else:
-                            st.success(f"需求树解析完成：3.2 节点 {result['section_32_count']}，3.3 节点 {result['section_33_count']}，最低可测功能 {result['testable_count']}，用时 {result['elapsed_seconds']:.2f} 秒。")
+                            st.success(f"需求树解析完成：采用 {result['extraction_method']}；CSCI能力需求节点 {result['section_32_count']}，CSCI能力节点 {result['section_33_count']}，最低可测功能 {result['testable_count']}，用时 {result['elapsed_seconds']:.2f} 秒。")
+                            if result.get('fallback_reason'): st.warning(result['fallback_reason'])
                         for warning in result["warnings"]: st.warning(warning)
                     except Exception as exc:
                         logger.exception("CSCI parse button failed project=%s",project_id)
@@ -171,16 +176,20 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
     with st.container(border=True):
         st.write("**步骤6：需求—页面语义绑定**")
         st.caption("系统结合需求、简化DOM和Playwright观测自动绑定；关键词只用于召回候选。")
-        if st.button("自动理解站点并绑定需求",type="primary",key=f"semantic_bind_{project_id}"):
+        funnel=service.binding_funnel(project_id); st.write("绑定数据漏斗",funnel)
+        binding_disabled=funnel["最低可测功能"]==0 or funnel["HTML页面"]==0
+        if funnel["最低可测功能"]==0: st.warning("最低可测功能为0，绑定未执行。")
+        if funnel["HTML页面"]==0: st.warning("HTML页面为0，请先完成静态分析。")
+        if st.button("自动理解站点并绑定需求",type="primary",disabled=binding_disabled,key=f"semantic_bind_{project_id}"):
             try:
                 with st.status("正在理解需求与页面语义",expanded=True): binding=service.auto_bind_requirements(project_id)
-                st.session_state[f"binding_result_{project_id}"]={"confirmed":binding["confirmed"],"need_human_confirm":binding["need_human_confirm"],"model":binding["model"],"bindings":binding["bindings"][:100]}
+                st.session_state[f"binding_result_{project_id}"]={"participating":binding["participating"],"confirmed":binding["confirmed"],"need_human_confirm":binding["need_human_confirm"],"unmatched":binding["unmatched"],"failed":binding["failed"],"model":binding["model"],"bindings":binding["bindings"][:100]}
             except Exception as exc:
                 logger.exception("Semantic binding failed project=%s",project_id)
                 st.error(f"语义绑定失败：{type(exc).__name__}: {exc}")
         binding=st.session_state.get(f"binding_result_{project_id}")
         if binding:
-            st.write({"自动确认":binding["confirmed"],"待人工确认":binding["need_human_confirm"],"模型":binding["model"]})
+            st.write({"参与绑定":binding["participating"],"自动确认":binding["confirmed"],"待人工确认":binding["need_human_confirm"],"未匹配":binding["unmatched"],"失败":binding["failed"],"模型":binding["model"]})
             st.dataframe(binding["bindings"],use_container_width=True,hide_index=True)
 
         review_rows = _trace_rows(service, project_id)

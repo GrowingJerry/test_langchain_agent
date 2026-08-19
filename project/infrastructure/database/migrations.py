@@ -8,7 +8,7 @@ from typing import Dict
 
 from infrastructure.database.connection import SQLiteConnectionManager
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 21
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -393,6 +393,11 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
                 reference TEXT NOT NULL DEFAULT '',summary TEXT NOT NULL DEFAULT '',missing INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(project_id,page_id,resource_id),FOREIGN KEY(project_id,page_id) REFERENCES html_pages(project_id,page_id)
             );
+            CREATE TABLE IF NOT EXISTS html_page_summaries (
+                project_id TEXT NOT NULL,page_id TEXT NOT NULL,summary_json TEXT NOT NULL DEFAULT '{}',
+                source_bytes INTEGER NOT NULL DEFAULT 0,compressed_chars INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(project_id,page_id),FOREIGN KEY(project_id,page_id) REFERENCES html_pages(project_id,page_id)
+            );
             CREATE TABLE IF NOT EXISTS equipment_import_errors (
                 error_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_file TEXT NOT NULL,
                 source_line_no INTEGER NOT NULL, error_type TEXT NOT NULL, error_message TEXT NOT NULL,
@@ -409,6 +414,8 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
                 "node_type": "TEXT NOT NULL DEFAULT 'group'", "source_position_json": "TEXT NOT NULL DEFAULT '{}'",
                 "section_evidence_json": "TEXT NOT NULL DEFAULT '{}'", "overview_node_id": "TEXT NOT NULL DEFAULT ''",
                 "testable": "INTEGER NOT NULL DEFAULT 0", "review_status": "TEXT NOT NULL DEFAULT 'pending'"
+                ,"enabled": "INTEGER NOT NULL DEFAULT 1", "deleted_at": "TEXT", "generation_approved": "INTEGER NOT NULL DEFAULT 0",
+                "extraction_method": "TEXT NOT NULL DEFAULT 'csci_structured'", "confidence": "REAL NOT NULL DEFAULT 0"
             }
         )
         _ensure_columns(

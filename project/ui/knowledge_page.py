@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Optional
 
 import streamlit as st
@@ -16,6 +17,7 @@ from ui.generation_page import (
 )
 
 IMAGE_TYPES = ["png", "jpg", "jpeg", "webp"]
+logger = logging.getLogger("test_agent.knowledge_ui")
 
 
 def _table_value(value: Any) -> Any:
@@ -68,6 +70,7 @@ def _render_visual_evidence_area(service: Any, project_id: str) -> None:
         try:
             requirements = service.list_requirements(project_id)
         except Exception as exc:  # noqa: BLE001 - UI must not crash on optional evidence binding.
+            logger.exception("Requirement list load failed project=%s", project_id)
             st.warning(f"读取需求列表失败，图片仍可上传但不会绑定需求：{exc}")
         selectable_requirements = [
             row for row in requirements if str(row.get("requirement_id") or "").strip()
@@ -394,59 +397,79 @@ def _render_retrieval_debug(service: Any, project_id: str, top_k: int) -> None:
 def _render_requirement_review(
     service: Any, project_id: str, use_ollama: bool = False
 ) -> None:
-    """Keep requirement extraction/review next to its source documents."""
-    st.subheader("抽取并确认可生成的需求")
-    st.caption("只有保存审核结果后，需求才会出现在下一步的生成页面中。")
-    structured_rows = service.traceability_rows(project_id).get("atomic_requirements") or []
-    profile_col, extract_col = st.columns(2)
-    if profile_col.button("更新项目画像", key=f"profile_in_knowledge_{project_id}"):
-        service.extract_profile(project_id, use_ollama=use_ollama)
-        st.success("项目画像已更新。")
-    if structured_rows:
-        extract_col.success(
-            f"已采用 CSCI 结构化抽取：{len(structured_rows)} 条原子需求"
-        )
-    elif extract_col.button(
-        "普通文档需求抽取",
-        type="primary",
-        help="仅在未使用 CSCI 结构化解析时使用。",
-        key=f"requirements_in_knowledge_{project_id}",
-    ):
-        st.session_state[f"requirement_extraction_preview_{project_id}"] = (
-            service.preview_requirement_extraction(project_id)
-        )
-    preview = st.session_state.get(f"requirement_extraction_preview_{project_id}")
-    if preview:
-        st.write("**抽取质量摘要**")
-        st.json(preview.get("report") or {})
-        machine_rows = list(preview.get("requirements") or [])
-        edited_rows = st.data_editor(
-            _review_rows(machine_rows),
-            hide_index=True,
-            use_container_width=True,
-            key=f"requirement_review_editor_{project_id}",
-        )
-        if st.button(
-            "保存审核后的需求清单",
-            type="primary",
-            key=f"save_reviewed_requirements_{project_id}",
-        ):
-            reviewed = _rows_to_reviewed_dicts(edited_rows, machine_rows)
-            service.save_reviewed_requirements(project_id, reviewed, machine_rows)
-            st.session_state.pop(f"requirement_extraction_preview_{project_id}", None)
-            st.success("需求已保存，可以进入“生成测试用例”。")
+    """Single review gate shared by CSCI, general-AI and manual requirements."""
+    st.subheader("统一需求审核")
+    st.caption("两种抽取方式和人工新增需求均在这里确认；只有已确认、启用并提交的最低功能才能进入生成页面。")
+    rows=service.requirement_review_rows(project_id)
+    if not rows:
+        st.info("尚无最低可测功能。请先在“结构与HTML”中选择抽取方式并生成统一需求树。")
+        return
+    edited=st.data_editor(rows,hide_index=True,use_container_width=True,num_rows="dynamic",disabled=["node_id","source_document","source_block_id","extraction_method","confidence","review_status","generation_approved"],key=f"unified_requirement_review_{project_id}")
+    left,right=st.columns(2)
+    if left.button("保存审核修改",type="primary",key=f"save_unified_review_{project_id}"):
+        try:
+            result=service.save_requirement_reviews(project_id,edited.to_dict("records") if hasattr(edited,"to_dict") else list(edited)); st.success(f"已更新 {result['updated']} 项，软删除 {result['deleted']} 项，恢复 {result['restored']} 项。")
             st.rerun()
-    requirements = service.list_requirements(project_id)
-    if requirements:
-        label = "结构化需求" if structured_rows else "当前已确认需求"
-        st.write(f"**{label}：{len(requirements)} 条**")
-        st.dataframe(
-            _requirement_preview_rows(requirements),
-            hide_index=True,
-            use_container_width=True,
-        )
-    else:
-        st.info("当前尚无已确认需求。")
+        except Exception as exc:
+            logger.exception("Requirement review save failed project=%s", project_id)
+            st.error(f"保存失败：{type(exc).__name__}: {exc}")
+    if right.button("确认并提交到测试用例生成",type="primary",key=f"submit_requirements_{project_id}"):
+        try:
+            result=service.submit_requirements_for_generation(project_id); st.success(f"已提交 {result['submitted']} 个最低功能，可进入生成页面。")
+            st.rerun()
+        except Exception as exc:
+            logger.exception("Requirement review submit failed project=%s", project_id)
+            st.error(f"提交失败：{type(exc).__name__}: {exc}")
+    active={row['node_id']:row for row in rows if row.get('enabled') and not row.get('deleted')}
+    if active:
+        selected=st.selectbox("单独重新解析一个功能",list(active),format_func=lambda x:f"{active[x]['identifier']} · {active[x]['name']}",key=f"single_reparse_{project_id}")
+        with st.expander("查看原文、原子需求与 HTML 绑定", expanded=False):
+            try:
+                evidence = service.requirement_review_evidence(project_id, selected)
+                st.caption(
+                    f"来源：{evidence['source_document']} · 块：{evidence['source_block_id']}"
+                )
+                for section_name, section_text in evidence["original_sections"].items():
+                    if section_text:
+                        st.markdown(f"**{section_name}**")
+                        st.write(str(section_text)[:4000])
+                st.markdown("**原子需求**")
+                st.dataframe(
+                    _table_rows(evidence["atoms"]),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                st.markdown("**页面与元素绑定**")
+                st.dataframe(
+                    _table_rows(
+                        [*evidence["page_bindings"], *evidence["element_bindings"]]
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+                st.caption("绑定修改与确认请在同页的“结构与 HTML → 人工确认绑定”区域完成。")
+            except Exception as exc:
+                logger.exception(
+                    "Requirement evidence load failed project=%s node=%s",
+                    project_id,
+                    selected,
+                )
+                st.error(f"证据加载失败：{type(exc).__name__}: {exc}")
+        if st.button("重新拆分并审计所选功能",key=f"reparse_one_{project_id}"):
+            try:
+                with st.status("正在重新拆分所选功能",expanded=True): result=service.reparse_single_requirement(project_id,selected)
+                if result['failures']: st.error(result['failures'])
+                else: st.success("所选功能已重新拆分；请再次审核并提交。")
+            except Exception as exc:
+                logger.exception(
+                    "Single requirement reparse failed project=%s node=%s",
+                    project_id,
+                    selected,
+                )
+                st.error(f"重新解析失败：{type(exc).__name__}: {exc}")
+    with st.expander("辅助：更新项目画像"):
+        if st.button("更新项目画像",key=f"profile_in_knowledge_{project_id}"):
+            service.extract_profile(project_id,use_ollama=use_ollama); st.success("项目画像已更新。")
 
 
 def render_knowledge_page(

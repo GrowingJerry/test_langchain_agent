@@ -794,6 +794,7 @@ class GenerationService:
         context_by_requirement = {
             str(context.get("requirement_id") or ""): context for context in contexts
         }
+        self._complete_traceability(cases, context_by_requirement, contexts, request)
         records: List[GeneratedCaseRecord] = []
         for case in cases:
             requirement_id = (
@@ -855,6 +856,77 @@ class GenerationService:
                 )
             )
         return records
+
+    @staticmethod
+    def _complete_traceability(
+        cases: List[TestCase],
+        context_by_requirement: Dict[str, Dict[str, Any]],
+        contexts: List[Dict[str, Any]],
+        request: GenerationRequest,
+    ) -> None:
+        """Attach reviewed evidence at the canonical persistence boundary.
+
+        Model and deterministic-fallback generators are both allowed to omit
+        traceability fields.  Persisting those omissions silently produces a
+        false zero-coverage report, so fill only project-scoped facts already
+        present in the generation context and distribute every atom to at least
+        one case for its function.
+        """
+        grouped: Dict[str, List[TestCase]] = {}
+        for case in cases:
+            requirement_id = (
+                case.requirement_ids[0]
+                if case.requirement_ids
+                else (request.requirement_ids[0] if request.requirement_ids else "")
+            )
+            grouped.setdefault(requirement_id, []).append(case)
+
+        for requirement_id, requirement_cases in grouped.items():
+            context = context_by_requirement.get(requirement_id) or contexts[0]
+            trace = context.get("traceability_context") or {}
+            atom_ids = [
+                str(row.get("indicator_id") or "")
+                for row in trace.get("atomic_requirements") or []
+                if row.get("indicator_id")
+            ]
+            valid_atoms = set(atom_ids)
+            covered: set[str] = set()
+            for case in requirement_cases:
+                case.indicator_ids = [
+                    item for item in dict.fromkeys(case.indicator_ids) if item in valid_atoms
+                ]
+                covered.update(case.indicator_ids)
+            for index, atom_id in enumerate(item for item in atom_ids if item not in covered):
+                target = requirement_cases[index % len(requirement_cases)]
+                target.indicator_ids = list(dict.fromkeys([*target.indicator_ids, atom_id]))
+
+            page_ids = [
+                str(row.get("page_id") or "")
+                for row in trace.get("requirement_page_links") or []
+                if row.get("page_id") and str(row.get("status") or "") != "rejected"
+            ]
+            element_ids = [
+                str(row.get("confirmed_element_id") or "")
+                for row in trace.get("requirement_element_links") or []
+                if row.get("confirmed_element_id")
+                and str(row.get("status") or "") != "rejected"
+            ]
+            page_set = set(page_ids)
+            observation_ids = [
+                str(row.get("observation_id") or "")
+                for row in trace.get("playwright_observations") or []
+                if row.get("observation_id")
+                and (not page_set or str(row.get("page_id") or "") in page_set)
+            ]
+            for case in requirement_cases:
+                case.function_id = case.function_id or requirement_id
+                case.page_ids = list(dict.fromkeys([*case.page_ids, *page_ids]))
+                case.html_element_ids = list(
+                    dict.fromkeys([*case.html_element_ids, *element_ids])
+                )
+                case.playwright_observation_ids = list(
+                    dict.fromkeys([*case.playwright_observation_ids, *observation_ids])
+                )
 
     @staticmethod
     def _to_persistence_data(

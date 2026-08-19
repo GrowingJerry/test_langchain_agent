@@ -192,7 +192,7 @@ class _HTMLCollector(HTMLParser):
         if not value: return
         if self.stack and self.stack[-1] == "title": self.title += value
         if self._label_for: self.labels[self._label_for] = (self.labels.get(self._label_for, "") + value).strip()
-        if self.elements and self.elements[-1].tag in self.TARGETS: self.elements[-1].text += value
+        if self.elements and self.stack and self.elements[-1].tag == self.stack[-1]: self.elements[-1].text += value
 
 
 def iter_offline_html_elements(content: str | bytes, page_path: str = "index.html"):
@@ -202,7 +202,10 @@ def iter_offline_html_elements(content: str | bytes, page_path: str = "index.htm
     page_id = _stable_id("PAGE", page_path)
     def generate():
         for index, raw in enumerate(e for e in parser.elements if e.tag != "form"):
-            attrs=raw.attrs; element_id=_stable_id("EL", page_path, attrs.get("id", ""), raw.path, str(index))
+            allowed={"id","name","type","role","aria-label","placeholder","value","required","readonly","disabled","min","max","minlength","maxlength","pattern","checked","selected","href","action","target"}
+            attrs={k:(str(v)[:500] if v is not None else "") for k,v in raw.attrs.items() if k.lower() in allowed or k.lower().startswith("on")}
+            if str(attrs.get("value","")).lower().startswith("data:"): attrs["value"]="[inline resource omitted]"
+            element_id=_stable_id("EL", page_path, attrs.get("id", ""), raw.path, str(index))
             label=parser.labels.get(attrs.get("id", ""), ""); locators=[]
             if attrs.get("role") and (attrs.get("aria-label") or label): locators.append(f"role={attrs['role']} name={attrs.get('aria-label') or label}")
             if label: locators.append(f"label={label}")

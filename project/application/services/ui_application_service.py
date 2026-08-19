@@ -587,8 +587,8 @@ class UIApplicationService:
         indicators = [item for node in parsed["testable_nodes"] for item in atomic_indicators(node)]
         with self.manager.connections.transaction() as conn:
             for node in nodes:
-                conn.execute("INSERT OR REPLACE INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm,ancestor_node_ids_json,ancestor_identifiers_json,node_type,source_position_json,section_evidence_json,overview_node_id,testable) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (project_id,node.node_id,node.parent_id,node.identifier,node.name,node.level,dumps_json(node.hierarchy_path),dumps_json(node.sections),node.source_document,node.source_block_id,int(node.identifier_generated),int(node.need_human_confirm),dumps_json(node.ancestor_node_ids),dumps_json(node.ancestor_identifiers),node.node_type,dumps_json(node.source_position),dumps_json(node.section_evidence),node.overview_node_id,int(node.testable)))
+                conn.execute("INSERT OR REPLACE INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm,ancestor_node_ids_json,ancestor_identifiers_json,node_type,source_position_json,section_evidence_json,overview_node_id,testable,review_status,enabled,deleted_at,generation_approved,extraction_method,confidence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (project_id,node.node_id,node.parent_id,node.identifier,node.name,node.level,dumps_json(node.hierarchy_path),dumps_json(node.sections),node.source_document,node.source_block_id,int(node.identifier_generated),int(node.need_human_confirm),dumps_json(node.ancestor_node_ids),dumps_json(node.ancestor_identifiers),node.node_type,dumps_json(node.source_position),dumps_json(node.section_evidence),node.overview_node_id,int(node.testable),'pending',1,None,0,'csci_structured',float(parsed.get('structure_confidence',0))))
             for item in indicators:
                 conn.execute("INSERT OR REPLACE INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,
@@ -625,23 +625,49 @@ class UIApplicationService:
                 "parent_requirement_ids": [node.parent_id] if node.parent_id else [],
                 "need_human_confirm": bool(node.need_human_confirm),
                 "missing_information": [],
-                "retained": bool(node.testable),
+                "retained": False,
             })
-        section_32=sum(1 for x in nodes if str(x.section_number).startswith("3.2"))
-        section_33=sum(1 for x in nodes if str(x.section_number).startswith("3.3"))
+        section_32=len(parsed.get("overview_nodes") or [])
+        section_33=len(parsed.get("detail_nodes") or [])
         warnings=list(parsed.get("warnings") or [])
         if not nodes: warnings.append("未识别到3.2/3.3需求节点；请检查标题编号和DOCX正文结构。")
         if nodes and not parsed["testable_nodes"]: warnings.append("已识别需求树，但没有具备完整功能描述/输入/处理/输出的最低可测功能。")
         elapsed=round(time.monotonic()-started,3)
         logger.info("CSCI parse completed project=%s nodes=%s testable=%s elapsed=%s",project_id,len(nodes),len(parsed["testable_nodes"]),elapsed)
-        return {"section_32_count":section_32,"section_33_count":section_33,"node_count":len(nodes),"testable_count":len(parsed["testable_nodes"]),"warnings":warnings,"elapsed_seconds":elapsed,"nodes":[x.model_dump(mode="json") for x in nodes],"overview_nodes":[x.model_dump(mode="json") for x in parsed["overview_nodes"]],"testable_nodes":[x.model_dump(mode="json") for x in parsed["testable_nodes"]],"indicators":[x.model_dump(mode="json") for x in indicators]}
+        return {"section_32_count":section_32,"section_33_count":section_33,"node_count":len(nodes),"testable_count":len(parsed["testable_nodes"]),"warnings":warnings,"elapsed_seconds":elapsed,"extraction_method":"csci_structured","fallback_reason":"","structure_confidence":parsed.get("structure_confidence",0),"nodes":[x.model_dump(mode="json") for x in nodes],"overview_nodes":[x.model_dump(mode="json") for x in parsed["overview_nodes"]],"testable_nodes":[x.model_dump(mode="json") for x in parsed["testable_nodes"]],"indicators":[x.model_dump(mode="json") for x in indicators]}
+
+    def extract_requirement_document(self,project_id:str,path:Path,mode:str="auto",progress_callback:Any=None)->Dict[str,Any]:
+        """Route both extraction methods into the canonical node/indicator stores."""
+        from application.services.csci_document_service import parse_formal_csci_docx
+        if progress_callback: progress_callback({"stage":"结构可信度检测","index":0,"total":1,"object":path.name})
+        probe=parse_formal_csci_docx(path)
+        use_csci=mode=="csci" or (mode=="auto" and probe.get("structure_confidence",0)>=.8)
+        if use_csci:
+            result=self.analyze_csci_docx(project_id,path)
+            if not result["testable_count"]: raise ValueError("规范CSCI抽取未产生最低可测功能")
+            return result
+        if mode=="csci": raise ValueError("文档不满足规范CSCI语义结构")
+        from application.services.general_requirement_service import extract_general_requirements
+        from application.services.traceability_service import atomic_indicators
+        from infrastructure.database.json_codec import dumps_json
+        parsed=extract_general_requirements(path,self.settings,progress_callback); nodes=parsed["nodes"]
+        if not nodes: raise ValueError("通用AI抽取未产生任何有效需求")
+        indicators=[item for node in nodes for item in atomic_indicators(node)]
+        with self.manager.connections.transaction() as conn:
+            for node in nodes:
+                conn.execute("INSERT OR REPLACE INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm,ancestor_node_ids_json,ancestor_identifiers_json,node_type,source_position_json,section_evidence_json,overview_node_id,testable,review_status,enabled,deleted_at,generation_approved,extraction_method,confidence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(project_id,node.node_id,node.parent_id,node.identifier,node.name,node.level,dumps_json(node.hierarchy_path),dumps_json(node.sections),node.source_document,node.source_block_id,int(node.identifier_generated),int(node.need_human_confirm),dumps_json(node.ancestor_node_ids),dumps_json(node.ancestor_identifiers),node.node_type,dumps_json(node.source_position),dumps_json(node.section_evidence),node.overview_node_id,1,'pending',1,None,0,'llm_general',float(parsed.get('structure_confidence',0))))
+            for item in indicators:
+                conn.execute("INSERT OR REPLACE INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(project_id,item.indicator_id,item.capability_id,item.function_id,item.parent_indicator_id,item.indicator_text,item.indicator_type,dumps_json({"block_id":item.source_block_id,"source_text":item.source_text}),dumps_json({"inputs":item.input_constraints,"processing":item.processing_rules,"expected":item.expected_behavior}),item.verification_scope,int(item.need_human_confirm)))
+        for node in nodes:
+            self.manager.upsert_requirement(project_id,{"requirement_id":node.identifier,"title":node.name,"description":node.sections.get("功能描述",""),"requirement_type":"functional","section_path":node.hierarchy_path,"inputs":[node.sections.get("输入","")],"processing_rules":[node.sections.get("处理","")],"outputs":[node.sections.get("输出","")],"source_document":node.source_document,"source_chunk_id":node.source_block_id,"need_human_confirm":node.need_human_confirm,"retained":False})
+        return {"section_32_count":0,"section_33_count":0,"node_count":len(nodes),"testable_count":len(nodes),"warnings":parsed["warnings"],"elapsed_seconds":0,"extraction_method":"llm_general","fallback_reason":"CSCI结构可信度不足，自动回退" if mode=="auto" else "用户选择通用AI抽取","structure_confidence":parsed.get("structure_confidence",0),"nodes":[x.model_dump(mode='json') for x in nodes],"testable_nodes":[x.model_dump(mode='json') for x in nodes],"indicators":[x.model_dump(mode='json') for x in indicators]}
 
     def atomize_and_audit_requirements(self, project_id: str, progress_callback: Any = None, resume: bool = True) -> Dict[str, Any]:
         from application.services.requirement_atomization_service import atomize_and_audit
         from domain.schemas.traceability import RequirementNode
         from infrastructure.database.json_codec import dumps_json, loads_json
         with self.manager.connections.connection() as conn:
-            rows=[dict(x) for x in conn.execute("SELECT * FROM requirement_nodes WHERE project_id=? ORDER BY level,source_block_id",(project_id,))]
+            rows=[dict(x) for x in conn.execute("SELECT * FROM requirement_nodes WHERE project_id=? AND enabled=1 AND deleted_at IS NULL ORDER BY level,source_block_id",(project_id,))]
         nodes=[]
         for row in rows:
             if not row.get("testable"): continue
@@ -651,7 +677,8 @@ class UIApplicationService:
             if progress_callback: progress_callback({"index":index,"total":total,"function_id":node.identifier,"name":node.name,"status":"running"})
             with self.manager.connections.connection() as conn:
                 previous=conn.execute("SELECT review_status FROM requirement_nodes WHERE project_id=? AND node_id=?",(project_id,node.node_id)).fetchone()
-            if resume and previous and previous[0] in ("passed","human_confirmed"):
+                existing_atom_count=conn.execute("SELECT count(*) FROM requirement_indicators WHERE project_id=? AND function_id=?",(project_id,node.identifier)).fetchone()[0]
+            if resume and previous and previous[0] in ("passed","human_confirmed") and existing_atom_count:
                 results.append({"function_id":node.identifier,"status":"skipped_completed"})
                 if progress_callback: progress_callback({"index":index,"total":total,"function_id":node.identifier,"name":node.name,"status":"skipped_completed"})
                 continue
@@ -724,6 +751,110 @@ class UIApplicationService:
                 else:
                     conn.execute("UPDATE requirement_page_links SET page_id=?,status=?,need_human_confirm=? WHERE project_id=? AND link_id=?",(page_id,"confirmed" if confirmed else "proposed",0 if confirmed else 1,project_id,link_id))
 
+    def requirement_review_rows(self,project_id:str)->List[Dict[str,Any]]:
+        from infrastructure.database.json_codec import loads_json
+        with self.manager.connections.connection() as conn:
+            rows=[dict(x) for x in conn.execute("SELECT node_id,parent_id,identifier,name,hierarchy_path_json,sections_json,source_document,source_block_id,testable,review_status,enabled,deleted_at,generation_approved,extraction_method,confidence,need_human_confirm FROM requirement_nodes WHERE project_id=? AND testable=1 ORDER BY source_block_id LIMIT 500",(project_id,))]
+        result=[]
+        for row in rows:
+            sections=loads_json(row.pop('sections_json'),{}); hierarchy=loads_json(row.pop('hierarchy_path_json'),[])
+            result.append({**row,"hierarchy_path":" / ".join(hierarchy),"functional_description":sections.get("功能描述",""),"inputs":sections.get("输入",""),"processing":sections.get("处理",""),"outputs":sections.get("输出",""),"deleted":bool(row.get("deleted_at")),"enabled":bool(row.get("enabled")),"generation_approved":bool(row.get("generation_approved")),"need_human_confirm":bool(row.get("need_human_confirm"))})
+        return result
+
+    def requirement_review_evidence(self, project_id: str, node_id: str) -> Dict[str, Any]:
+        """Return a bounded, human-readable evidence view for one review row."""
+        from infrastructure.database.json_codec import loads_json
+        with self.manager.connections.connection() as conn:
+            node = conn.execute(
+                "SELECT identifier,source_document,source_block_id,sections_json,section_evidence_json "
+                "FROM requirement_nodes WHERE project_id=? AND node_id=?",
+                (project_id, node_id),
+            ).fetchone()
+            if not node:
+                raise KeyError("当前项目中不存在所选需求")
+            atoms = [dict(row) for row in conn.execute(
+                "SELECT indicator_id,indicator_text,indicator_type,source_json,verification_scope,need_human_confirm "
+                "FROM requirement_indicators WHERE project_id=? AND function_id=? ORDER BY indicator_id LIMIT 200",
+                (project_id, node["identifier"]),
+            )]
+            pages = [dict(row) for row in conn.execute(
+                "SELECT page_id,status,confidence,reason,need_human_confirm FROM requirement_page_links "
+                "WHERE project_id=? AND function_id=? ORDER BY confidence DESC LIMIT 100",
+                (project_id, node["identifier"]),
+            )]
+            elements = [dict(row) for row in conn.execute(
+                "SELECT indicator_id,page_id,confirmed_element_id,status,confidence,reason,need_human_confirm "
+                "FROM requirement_element_links WHERE project_id=? AND indicator_id IN "
+                "(SELECT indicator_id FROM requirement_indicators WHERE project_id=? AND function_id=?) "
+                "ORDER BY confidence DESC LIMIT 200",
+                (project_id, project_id, node["identifier"]),
+            )]
+        for atom in atoms:
+            source = loads_json(atom.pop("source_json", "{}"), {})
+            atom["source_text"] = str(source.get("source_text") or "")[:2000]
+            atom["evidence_spans"] = source.get("evidence_spans") or []
+        return {
+            "source_document": node["source_document"],
+            "source_block_id": node["source_block_id"],
+            "original_sections": loads_json(node["sections_json"], {}),
+            "section_evidence": loads_json(node["section_evidence_json"], {}),
+            "atoms": atoms,
+            "page_bindings": pages,
+            "element_bindings": elements,
+        }
+
+    def save_requirement_reviews(self,project_id:str,rows:List[Dict[str,Any]])->Dict[str,int]:
+        from infrastructure.database.json_codec import dumps_json,loads_json
+        from datetime import datetime,timezone
+        updated=deleted=restored=0
+        with self.manager.connections.transaction() as conn:
+            existing={x['node_id']:dict(x) for x in conn.execute("SELECT * FROM requirement_nodes WHERE project_id=? AND testable=1",(project_id,))}
+            for item in rows:
+                node_id=str(item.get('node_id') or ''); old=existing.get(node_id)
+                if not old:
+                    from hashlib import sha256
+                    identifier=str(item.get('identifier') or '').strip(); name=str(item.get('name') or '').strip(); description=str(item.get('functional_description') or '').strip()
+                    if not identifier or not name or not description: continue
+                    node_id='MANUAL-'+sha256((project_id+identifier).encode()).hexdigest()[:16].upper(); hierarchy=[x.strip() for x in str(item.get('hierarchy_path') or name).split('/') if x.strip()]
+                    sections={"功能描述":description,"输入":str(item.get('inputs') or ''),"处理":str(item.get('processing') or ''),"输出":str(item.get('outputs') or '')}
+                    conn.execute("INSERT INTO requirement_nodes(project_id,node_id,parent_id,identifier,name,level,hierarchy_path_json,sections_json,source_document,source_block_id,identifier_generated,need_human_confirm,node_type,testable,review_status,enabled,generation_approved,extraction_method,confidence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(project_id,node_id,'',identifier,name,len(hierarchy),dumps_json(hierarchy),dumps_json(sections),'manual_input','manual',0,0,'function',1,'human_confirmed',1,0,'manual',1.0))
+                    self.manager.requirements._upsert(conn,project_id,{"requirement_id":identifier,"title":name,"description":description,"requirement_type":"functional","section_path":hierarchy,"inputs":[sections['输入']],"processing_rules":[sections['处理']],"outputs":[sections['输出']],"source_document":'manual_input',"source_chunk_id":'manual',"retained":False})
+                    updated+=1; continue
+                old_identifier=old['identifier']; identifier=str(item.get('identifier') or old_identifier).strip(); name=str(item.get('name') or old['name']).strip()
+                if not identifier or not name: raise ValueError('名称和标识符不能为空')
+                if identifier!=old_identifier:
+                    conflict=conn.execute("SELECT 1 FROM requirement_nodes WHERE project_id=? AND identifier=? AND node_id<>?",(project_id,identifier,node_id)).fetchone()
+                    if conflict: raise ValueError(f'标识符已存在: {identifier}')
+                    conn.execute("UPDATE requirement_indicators SET function_id=? WHERE project_id=? AND function_id=?",(identifier,project_id,old_identifier)); conn.execute("UPDATE requirement_page_links SET function_id=? WHERE project_id=? AND function_id=?",(identifier,project_id,old_identifier))
+                sections=loads_json(old.get('sections_json'),{}); sections.update({"功能描述":str(item.get('functional_description') or ''),"输入":str(item.get('inputs') or ''),"处理":str(item.get('processing') or ''),"输出":str(item.get('outputs') or '')})
+                hierarchy=[x.strip() for x in str(item.get('hierarchy_path') or '').split('/') if x.strip()] or [name]; hierarchy[-1]=name
+                is_deleted=bool(item.get('deleted')); was_deleted=bool(old.get('deleted_at')); deleted_at=datetime.now(timezone.utc).isoformat() if is_deleted else None; enabled=bool(item.get('enabled')) and not is_deleted
+                conn.execute("UPDATE requirement_nodes SET identifier=?,name=?,hierarchy_path_json=?,sections_json=?,enabled=?,deleted_at=?,generation_approved=0,review_status='human_confirmed',need_human_confirm=0 WHERE project_id=? AND node_id=?",(identifier,name,dumps_json(hierarchy),dumps_json(sections),int(enabled),deleted_at,project_id,node_id))
+                if is_deleted and not was_deleted: deleted+=1
+                if not is_deleted and was_deleted: restored+=1
+                updated+=1
+                conn.execute("DELETE FROM project_requirements WHERE project_id=? AND requirement_id=?",(project_id,old_identifier))
+                self.manager.requirements._upsert(conn,project_id,{"requirement_id":identifier,"title":name,"description":sections.get('功能描述',''),"requirement_type":"functional","section_path":hierarchy,"inputs":[sections.get('输入','')],"processing_rules":[sections.get('处理','')],"outputs":[sections.get('输出','')],"source_document":old.get('source_document',''),"source_chunk_id":old.get('source_block_id',''),"need_human_confirm":False,"retained":False})
+        return {"updated":updated,"deleted":deleted,"restored":restored}
+
+    def submit_requirements_for_generation(self,project_id:str)->Dict[str,int]:
+        with self.manager.connections.transaction() as conn:
+            eligible=[dict(x) for x in conn.execute("SELECT identifier FROM requirement_nodes n WHERE project_id=? AND testable=1 AND enabled=1 AND deleted_at IS NULL AND review_status='human_confirmed' AND EXISTS(SELECT 1 FROM requirement_indicators i WHERE i.project_id=n.project_id AND i.function_id=n.identifier)",(project_id,))]
+            if not eligible: raise ValueError('没有已确认、启用且具有非空原子需求的最低功能')
+            ids=[x['identifier'] for x in eligible]; marks=','.join('?'*len(ids))
+            conn.execute(f"UPDATE requirement_nodes SET generation_approved=1 WHERE project_id=? AND identifier IN ({marks})",(project_id,*ids))
+            conn.execute(f"UPDATE project_requirements SET retained=1 WHERE project_id=? AND requirement_id IN ({marks})",(project_id,*ids))
+        return {"submitted":len(ids)}
+
+    def reparse_single_requirement(self,project_id:str,node_id:str,progress_callback:Any=None)->Dict[str,Any]:
+        with self.manager.connections.transaction() as conn:
+            row=conn.execute("SELECT identifier FROM requirement_nodes WHERE project_id=? AND node_id=? AND testable=1 AND enabled=1 AND deleted_at IS NULL",(project_id,node_id)).fetchone()
+            if not row: raise KeyError('当前项目中不存在可重解析的启用需求')
+            conn.execute("DELETE FROM requirement_indicators WHERE project_id=? AND function_id=?",(project_id,row['identifier']))
+            conn.execute("UPDATE requirement_nodes SET review_status='pending',generation_approved=0 WHERE project_id=? AND node_id=?",(project_id,node_id))
+            conn.execute("UPDATE project_requirements SET retained=0 WHERE project_id=? AND requirement_id=?",(project_id,row['identifier']))
+        return self.atomize_and_audit_requirements(project_id,progress_callback,resume=True)
+
     def analyze_offline_html(self, project_id: str, filename: str, content: bytes, include_elements: bool = True) -> Dict[str, Any]:
         from application.services.traceability_service import iter_offline_html_elements
         from infrastructure.database.json_codec import dumps_json
@@ -735,6 +866,7 @@ class UIApplicationService:
         form_ids=set(); button_count=0; input_count=0; count=0; returned=[] if include_elements else None
         import re
         text=content.decode("utf-8",errors="replace")
+        compressed=re.sub(r"<!--.*?-->"," ",text,flags=re.S); compressed=re.sub(r"<(script|style)\b[^>]*>.*?</\1>"," ",compressed,flags=re.I|re.S); compressed=re.sub(r"<[^>]+>"," ",compressed); compressed=re.sub(r"\s+"," ",compressed).strip()[:8000]
         resource_rows=[]
         for kind,pattern in (("javascript",r"<script\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]"),("stylesheet",r"<link\b[^>]*\bhref\s*=\s*['\"]([^'\"]+)['\"]")):
             for index,match in enumerate(re.finditer(pattern,text,re.I)):
@@ -747,6 +879,7 @@ class UIApplicationService:
         del text
         with self.manager.connections.transaction() as conn:
             conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset) VALUES(?,?,?,?,?)",(project_id,page["page_id"],page["title"],page["path"],filename))
+            conn.execute("INSERT OR REPLACE INTO html_page_summaries(project_id,page_id,summary_json,source_bytes,compressed_chars) VALUES(?,?,?,?,?)",(project_id,page["page_id"],dumps_json({"page_id":page["page_id"],"title":page["title"],"path":page["path"],"visible_text_summary":compressed}),len(content),len(compressed)))
             conn.execute("DELETE FROM html_page_resources WHERE project_id=? AND page_id=?",(project_id,page["page_id"]))
             for resource_id,kind,reference,summary in resource_rows:
                 conn.execute("INSERT INTO html_page_resources(project_id,page_id,resource_id,resource_type,reference,summary,missing) VALUES(?,?,?,?,?,?,0)",(project_id,page["page_id"],resource_id,kind,reference[:1000],summary[:200]))
@@ -777,6 +910,7 @@ class UIApplicationService:
             for page_data in manifest["pages"]:
                 page,elements=parse_offline_html((root/page_data["path"]).read_bytes(),page_data["path"])
                 conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset,site_package_id) VALUES(?,?,?,?,?,?)",(project_id,page["page_id"],page["title"],page["path"],filename,site_id))
+                conn.execute("INSERT OR REPLACE INTO html_page_summaries(project_id,page_id,summary_json,source_bytes,compressed_chars) VALUES(?,?,?,?,?)",(project_id,page["page_id"],dumps_json({"page_id":page["page_id"],"title":page["title"],"path":page["path"],"visible_text_summary":page_data.get("visible_text_summary","")}),int(page_data.get("source_bytes",0)),int(page_data.get("compressed_chars",0))))
                 for item in elements:
                     conn.execute("INSERT OR REPLACE INTO html_elements(project_id,element_id,page_id,tag,element_type,element_json,site_package_id) VALUES(?,?,?,?,?,?,?)",(project_id,item.element_id,item.page_id,item.tag,item.element_type,dumps_json(item.model_dump(mode="json")),site_id))
             for index,relation in enumerate(manifest["navigation_relations"]):
@@ -837,6 +971,11 @@ class UIApplicationService:
         from application.services.semantic_binding_service import bind_project
         visual=self.understand_pages_visually(project_id)
         result=bind_project(self.manager,project_id,self.settings); result["visual_understanding"]=visual; return result
+
+    def binding_funnel(self,project_id:str)->Dict[str,Any]:
+        with self.manager.connections.connection() as conn:
+            one=lambda sql:conn.execute(sql,(project_id,)).fetchone()[0]
+            return {"最低可测功能":one("SELECT count(*) FROM requirement_nodes WHERE project_id=? AND testable=1 AND enabled=1 AND deleted_at IS NULL"),"原子需求":one("SELECT count(*) FROM requirement_indicators WHERE project_id=?"),"HTML页面":one("SELECT count(*) FROM html_pages WHERE project_id=?"),"可交互元素":one("SELECT count(*) FROM html_elements WHERE project_id=?"),"Playwright观测":one("SELECT count(*) FROM html_observations WHERE project_id=? AND action='bounded_plan'"),"视觉理解状态":"已完成" if one("SELECT count(*) FROM html_observations WHERE project_id=? AND action='page_understanding'") else "未执行","待绑定功能":one("SELECT count(*) FROM requirement_nodes WHERE project_id=? AND testable=1 AND enabled=1 AND deleted_at IS NULL AND identifier NOT IN (SELECT function_id FROM requirement_page_links WHERE project_id=requirement_nodes.project_id)")}
 
     def understand_pages_visually(self, project_id: str) -> Dict[str, Any]:
         from infrastructure.database.json_codec import dumps_json, loads_json
