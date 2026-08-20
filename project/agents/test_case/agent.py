@@ -122,6 +122,17 @@ class TestCaseAgent:
                 "coverage_plan 和 coverage_result：\n"
                 + json.dumps(generation_package, ensure_ascii=False, default=str)
             )
+            prompt += (
+                "\nEvidence fallback rule: when html_evidence_state is "
+                "machine_unmatched_candidate_pool, treat the earlier unmatched decision as "
+                "unconfirmed machine advice, not an exclusion. Reassess candidate_pages from "
+                "the complete requirement and atomic requirements. Select only real candidate "
+                "page_id values and business_elements belonging to that page; copy their real "
+                "region/position, set binding_status=model_selected_unconfirmed, "
+                "need_human_confirm=true, and provide selection_reason. If no candidate is "
+                "defensible, use requirement-only steps and explicitly request human confirmation; "
+                "never invent page, region, or control details."
+            )
         if prefetched:
             prompt += (
                 "\n以下是运行时通过当前项目只读工具预取的实际结果。不得重复调用这些"

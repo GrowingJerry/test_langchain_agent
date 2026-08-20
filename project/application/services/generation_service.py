@@ -221,7 +221,6 @@ class GenerationService:
                 f"available_output_tokens={insufficient['available_output_tokens']}，case_count={insufficient['case_count']}。"
                 "请减少用例数或调整 num_ctx/num_predict。"
             )
-        self._validate_evidence_preflight(request, packages)
         mode: GenerationMode
         fallback_reason = ""
         warnings: List[str] = []
@@ -511,21 +510,6 @@ class GenerationService:
         )
 
     @staticmethod
-    def _validate_evidence_preflight(request: GenerationRequest, packages: List[Dict[str, Any]]) -> None:
-        """Block only HTML-enhanced functional generation whose project has HTML but no related page."""
-        for wrapped in packages:
-            package = wrapped.get("package", {})
-            policy = package.get("generation_requirements", {}).get("evidence_policy", {})
-            pages = package.get("page_evidence") or []
-            if (
-                request.case_type == "功能测试"
-                and policy.get("html_level") == "strong"
-                and wrapped.get("has_project_html")
-                and not any(page.get("binding_status") in {"confirmed", "page_confirmed_element_pending"} for page in pages)
-            ):
-                raise StructuredOutputError("功能HTML增强模式缺少相关确认页面；请先完成语义绑定，禁止生成后再补造页面或区域")
-
-    @staticmethod
     def _generation_metadata(request: GenerationRequest) -> Dict[str, Any]:
         selected = request.selected_test_type or request.case_type
         recommended = request.recommended_test_type
@@ -645,6 +629,8 @@ class GenerationService:
     def _validate_and_render_detailed_cases(
         cases: List[TestCase], packages: List[Dict[str, Any]], case_type: str = "功能测试"
     ) -> List[TestCase]:
+        states = {str(wrapped.get("package", {}).get("html_evidence_state") or "no_html_evidence") for wrapped in packages}
+        candidate_mode = "machine_unmatched_candidate_pool" in states
         valid_pages = {
             str(page.get("page_id") or "")
             for wrapped in packages
@@ -660,6 +646,8 @@ class GenerationService:
             if element.get("element_id") and element.get("binding_status") in {"confirmed", "selectable_on_generation"}
         }
         element_evidence: Dict[str, Dict[str, Any]] = {}
+        candidate_pages: set[str] = set()
+        candidate_elements: set[str] = set()
         observed_messages: set[str] = set()
         requirement_text = ""
         for wrapped in packages:
@@ -682,7 +670,28 @@ class GenerationService:
                             "region": element.get("region") or element.get("relative_position") or element.get("semantic_position") or "",
                             "element_name": element.get("label") or element.get("text") or element.get("name") or "",
                             "element_type": element.get("element_type") or element.get("tag") or "",
+                            "binding_status": "confirmed" if element.get("binding_status") == "confirmed" else "model_selected_unconfirmed",
                         }
+            for page in wrapped.get("package", {}).get("candidate_pages", []):
+                page_id = str(page.get("page_id") or "")
+                if page_id:
+                    candidate_pages.add(page_id)
+                for observation in page.get("playwright_observations", []):
+                    observed_messages.update(str(value) for value in (observation.get("observed_result") or {}).values() if isinstance(value, str) and value)
+                for element in page.get("business_elements", []):
+                    element_id = str(element.get("element_id") or "")
+                    if not element_id:
+                        continue
+                    candidate_elements.add(element_id)
+                    element_evidence[element_id] = {
+                        "page_id": page_id, "page_name": page.get("page_name") or "",
+                        "region": element.get("region") or element.get("relative_position") or element.get("position_phrase") or "",
+                        "element_name": element.get("label") or element.get("name") or "",
+                        "element_type": element.get("control_type") or "",
+                        "binding_status": "model_selected_unconfirmed",
+                    }
+        allowed_pages = valid_pages | candidate_pages
+        allowed_elements = valid_elements | candidate_elements
         rendered: List[TestCase] = []
         for case in cases:
             if valid_pages and not case.structured_steps:
@@ -715,8 +724,14 @@ class GenerationService:
                         "region": step.region or evidence["region"],
                         "element_name": element_name,
                         "element_type": step.element_type or evidence["element_type"],
+                        "binding_status": evidence["binding_status"],
+                        "need_human_confirm": step.need_human_confirm or evidence["binding_status"] == "model_selected_unconfirmed",
                     })
-                if not valid_pages and step.action in {"click", "input", "select", "check"}:
+                    if evidence["binding_status"] == "model_selected_unconfirmed":
+                        if not step.selection_reason.strip():
+                            step = step.model_copy(update={"selection_reason":"模型选择了真实候选元素但未返回关联理由；具体关联理由待人工确认"})
+                        case_needs_confirmation = True
+                if (not allowed_pages or (candidate_mode and not step.page_id and not step.element_id)) and step.action in {"click", "input", "select", "check"}:
                     step = step.model_copy(update={
                         "page_id":"", "page_name":"", "region":"", "element_id":"",
                         "element_name":"", "element_type":"", "need_human_confirm":True,
@@ -724,12 +739,14 @@ class GenerationService:
                     case_needs_confirmation = True
                 if step.step_no != index:
                     raise StructuredOutputError(f"用例 {case.case_id} 步骤编号不连续")
-                if step.page_id and step.page_id not in valid_pages:
-                    raise StructuredOutputError(f"用例 {case.case_id} 使用未确认页面 {step.page_id}")
-                if step.element_id and step.element_id not in valid_elements:
-                    raise StructuredOutputError(f"用例 {case.case_id} 使用未确认元素 {step.element_id}")
+                if step.page_id and step.page_id not in allowed_pages:
+                    raise StructuredOutputError(f"用例 {case.case_id} 使用不存在的证据页面 {step.page_id}")
+                if step.element_id and step.element_id not in allowed_elements:
+                    raise StructuredOutputError(f"用例 {case.case_id} 使用不存在的证据元素 {step.element_id}")
+                if evidence and step.page_id and str(evidence["page_id"]) != step.page_id:
+                    raise StructuredOutputError(f"用例 {case.case_id} 的元素 {step.element_id} 不属于页面 {step.page_id}")
                 if step.action in {"click", "input", "select", "check"}:
-                    if valid_pages:
+                    if valid_pages or (candidate_mode and (step.page_id or step.element_id)):
                         if not step.page_id or not step.page_name or not step.region:
                             raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少已确认页面或真实区域")
                         if not step.element_id or not evidence:
@@ -781,11 +798,17 @@ class GenerationService:
                 expected.append(observable)
                 normalized_steps.append(step)
             missing = list(case.missing_information)
-            if case_needs_confirmation and not valid_pages:
-                missing.append("当前需求没有已确认HTML页面证据，未采用模型生成的页面、区域或元素，待人工确认")
+            selected_page_ids = [step.page_id for step in normalized_steps if step.page_id]
+            selected_element_ids = [step.element_id for step in normalized_steps if step.element_id]
+            if candidate_mode and not selected_element_ids:
+                case_needs_confirmation = True
+                missing.append("具体页面元素待确认；生成模型未从当前项目未确认候选证据池中选择元素")
+            elif case_needs_confirmation and not allowed_pages:
+                missing.append("当前需求没有已确认HTML页面证据；当前项目缺少HTML候选，已按纯需求模式生成且未编造页面或元素")
             if case_needs_confirmation and "缺少可支持部分页面提示的需求或观测证据" not in missing:
                 missing.append("缺少可支持部分页面提示的需求或观测证据")
-            rendered.append(case.model_copy(update={"structured_steps": normalized_steps, "test_steps": instructions, "expected_results": expected, "need_human_confirm": case_needs_confirmation, "missing_information": missing}))
+            rendered.append(case.model_copy(update={"structured_steps": normalized_steps, "test_steps": instructions, "expected_results": expected, "need_human_confirm": case_needs_confirmation, "missing_information": missing,
+                "page_ids":list(dict.fromkeys([*case.page_ids,*selected_page_ids])), "html_element_ids":list(dict.fromkeys([*case.html_element_ids,*selected_element_ids]))}))
         return rendered
 
     @staticmethod
@@ -982,6 +1005,7 @@ class GenerationService:
                         "instruction": "在页面和区域中执行一个动作",
                         "expected_result": {"page_change": "", "element_change": "可观察变化", "visible_message": "", "data_change": "", "online_confirmation": ""},
                         "evidence_source": "requirement/html/playwright", "need_human_confirm": False,
+                        "binding_status": "confirmed/model_selected_unconfirmed/empty", "selection_reason": "string",
                     }],
                 }
             ],
@@ -1039,6 +1063,9 @@ class GenerationService:
             "- Generate all cases for this one requirement in this single response; include coverage_plan and coverage_result.\n"
             "- Every case must include structured_steps. One step has exactly one action. UI steps must name page/region and wrap controls in 〖〗.\n"
             "- page_id and element_id must exist in GenerationPackage; without confirmed evidence do not invent UI details.\n"
+            "- If html_evidence_state is machine_unmatched_candidate_pool, reassess candidate_pages using the full requirement, inputs, processing, outputs, and atomic requirements. machine_unmatched is a prior model opinion, not an exclusion.\n"
+            "- Choose only candidate page_id values and only business_elements belonging to that page. Never invent a page, region, or control. Copy region/position evidence; set binding_status=model_selected_unconfirmed, need_human_confirm=true, and explain selection_reason.\n"
+            "- If no candidate is defensible, generate requirement-grounded non-UI steps, leave page_id/element_id empty, and say that the concrete page or element needs human confirmation.\n"
             "- requirement_ids may only use Target requirement_ids.\n"
             "- source_chunk_ids may only use chunk_id values present in project_context.\n"
             "- Generate cases for the selected test type, not the recommended type if different.\n"
@@ -1259,20 +1286,13 @@ class GenerationService:
             page_ids = [
                 str(row.get("page_id") or "")
                 for row in trace.get("requirement_page_links") or []
-                if row.get("page_id") and str(row.get("status") or "") != "rejected"
+                if row.get("page_id") and str(row.get("status") or "") in {"confirmed", "page_confirmed_element_pending"}
             ]
             element_ids = [
                 str(row.get("confirmed_element_id") or "")
                 for row in trace.get("requirement_element_links") or []
                 if row.get("confirmed_element_id")
-                and str(row.get("status") or "") != "rejected"
-            ]
-            page_set = set(page_ids)
-            observation_ids = [
-                str(row.get("observation_id") or "")
-                for row in trace.get("playwright_observations") or []
-                if row.get("observation_id")
-                and (not page_set or str(row.get("page_id") or "") in page_set)
+                and str(row.get("status") or "") in {"confirmed", "page_confirmed_element_pending"}
             ]
             for case in requirement_cases:
                 case.function_id = case.function_id or requirement_id
@@ -1280,6 +1300,13 @@ class GenerationService:
                 case.html_element_ids = list(
                     dict.fromkeys([*case.html_element_ids, *element_ids])
                 )
+                selected_pages = set(case.page_ids)
+                observation_ids = [
+                    str(row.get("observation_id") or "")
+                    for row in trace.get("playwright_observations") or []
+                    if row.get("observation_id")
+                    and (not selected_pages or str(row.get("page_id") or "") in selected_pages)
+                ]
                 case.playwright_observation_ids = list(
                     dict.fromkeys([*case.playwright_observation_ids, *observation_ids])
                 )

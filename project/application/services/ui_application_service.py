@@ -779,7 +779,7 @@ class UIApplicationService:
                 confidence=float(row.get("confidence") or 0)
                 reason=str(row.get("reason") or "")
                 if confirmed and (confidence <= 0 or any(word in reason for word in ("无关","不相关","未找到匹配"))):
-                    raise ValueError("置信度为0或明确不相关的绑定不能确认；请选择其他页面/元素后重试")
+                    raise ValueError("置信度为0或明确不相关的绑定不能确认。该页面不能直接保存为已确认绑定；系统仍会在生成阶段将当前项目HTML作为未确认候选证据交给模型重新判断。如用户确认页面相关，可选择‘确认相关页面，元素待生成阶段选择’")
                 if not link_id or page_id not in valid_pages:
                     continue
                 if kind == "element":

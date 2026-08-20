@@ -99,6 +99,20 @@ def test_agent_with_local_ollama() -> None:
             def generate(self, request, generation_package=None, progress_callback=None):
                 raise AgentExecutionError("forced acceptance failure")
 
+        # The binding model's zero-confidence result must remain available as
+        # unconfirmed HTML evidence for the generation model to reassess.
+        with manager.connections.transaction() as conn:
+            conn.execute("UPDATE requirement_page_links SET status='unmatched',confidence=0,reason='需求描述抽象，机器未找到相关元素',need_human_confirm=1 WHERE project_id=?", (project_id,))
+            conn.execute("UPDATE requirement_element_links SET status='unmatched',confidence=0,reason='机器未匹配',need_human_confirm=1 WHERE project_id=?", (project_id,))
+            conn.execute("UPDATE project_requirements SET title='提交订单',description='用户在订单录入页面点击提交订单按钮，系统接收当前订单。' WHERE project_id=? AND requirement_id='REQ-1'", (project_id,))
+            conn.execute("UPDATE requirement_indicators SET indicator_text='点击提交订单按钮并接收当前订单' WHERE project_id=? AND indicator_id='ATOM-ORDER'", (project_id,))
+            conn.execute("UPDATE html_pages SET title='订单录入' WHERE project_id=? AND page_id='PAGE-ORDER'", (project_id,))
+            conn.execute("UPDATE html_elements SET element_json=? WHERE project_id=? AND element_id='EL-SUBMIT'", (json.dumps({'element_id':'EL-SUBMIT','tag':'button','element_type':'button','text':'提交订单','label':'提交订单','region':'页面右下角操作区','visible':True},ensure_ascii=False),project_id))
+        candidate_context = ContextBuilder(manager).build(project_id, "REQ-1", "功能测试", persist=False)
+        candidate_package = build_generation_package(manager, candidate_context, num_ctx=settings.ollama_num_ctx, num_predict=settings.ollama_structured_num_predict)
+        assert candidate_package["package"]["html_evidence_state"] == "machine_unmatched_candidate_pool"
+        assert candidate_package["package"]["candidate_pages"][0]["business_elements"][0]["element_id"] == "EL-SUBMIT"
+
         persisted_before = len(manager.list_generated_cases(project_id))
         for attempt in range(2):
             stream_events=[]
@@ -123,4 +137,7 @@ def test_agent_with_local_ollama() -> None:
             assert any(event.get("kind")=="token" and event.get("content") for event in stream_events)
             assert any("正在执行结构校验" in event.get("content","") for event in stream_events)
             assert all(item.case.structured_steps for item in direct_result.cases)
+            selected = [step for item in direct_result.cases for step in item.case.structured_steps if step.element_id]
+            assert selected and all(step.page_id == "PAGE-ORDER" and step.element_id == "EL-SUBMIT" for step in selected)
+            assert all(step.binding_status == "model_selected_unconfirmed" and step.need_human_confirm for step in selected)
         assert len(manager.list_generated_cases(project_id)) >= persisted_before + 2

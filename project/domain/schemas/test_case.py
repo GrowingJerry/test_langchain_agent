@@ -46,6 +46,8 @@ class StructuredTestStep(BaseModel):
     instruction: str = Field(min_length=1)
     expected_result: StructuredExpectedResult
     evidence_source: str = ""
+    binding_status: str = ""
+    selection_reason: str = ""
     need_human_confirm: bool = False
 
 
