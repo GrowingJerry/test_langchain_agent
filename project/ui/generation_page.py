@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -14,6 +16,7 @@ from application.services.test_type_recommendation import (
 )
 from application.services.ui_state import request_fingerprint
 from domain.rules.test_types import LABELS
+from application.services.generation_task_registry import submit_generation
 
 TEST_TYPES = ["功能测试", "性能测试", "接口测试", "异常测试", "安全性测试", "可靠性测试"]
 
@@ -481,7 +484,9 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
             "人工备注要求": manual_note.strip() or "无",
             "项目生成上下文": preview_context,
         }
-    if generate_col.button("按需求生成测试用例", type="primary", key=f"generate_{project_id}"):
+    task_key=f"generation_task_{project_id}"
+    if generate_col.button("按需求生成测试用例", type="primary", key=f"generate_{project_id}",
+                           disabled=bool(st.session_state.get(task_key) and not st.session_state[task_key].future.done())):
         request_data = {
             "project_id": project_id, "requirement_ids": selected_ids,
             "case_type": case_type, "count": int(count), "mode": mode,
@@ -490,65 +495,41 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
         fingerprint = request_fingerprint(request_data)
         batch_id = f"REQ-BATCH-{fingerprint[:20]}"
         try:
-            stream_area = st.empty()
-            stream_text = {"reasoning": "", "token": ""}
-            progress_bar = st.progress(0.0, text=f"准备批量生成，共 {len(selected_ids)} 条需求")
-
-            def show_stream(event: dict[str, str]) -> None:
-                kind = event.get("kind", "status")
-                content = event.get("content", "")
-                index = int(event.get("index") or 1)
-                total = int(event.get("total") or len(selected_ids))
-                requirement_id = event.get("requirement_id", "")
-                progress_bar.progress(
-                    min((index - 1) / max(total, 1), 0.99),
-                    text=f"[{index}/{total}] {requirement_id}：{content[:80]}",
-                )
-                if kind in stream_text:
-                    stream_text[kind] += content
-                with stream_area.container():
-                    with st.expander("模型生成过程（完成后自动收起）", expanded=True):
-                        if stream_text["reasoning"]:
-                            st.caption("思考过程")
-                            st.code(stream_text["reasoning"][-6000:], language=None)
-                        if stream_text["token"]:
-                            st.caption("正在输出")
-                            st.code(stream_text["token"][-6000:], language=None)
-                        elif content:
-                            st.write(content)
-
-            batch_result = service.generate_requirement_batch(GenerationRequest(
-                    project_id=project_id,
-                    requirement_ids=selected_ids,
-                    case_type=recommendation["selected_case_type"],
-                    case_count=int(count),
-                    auto_case_count=auto_case_count,
-                    requested_mode=mode,
-                    use_project_kb=use_kb,
-                    use_history=history,
+            generation_request = GenerationRequest(
+                    project_id=project_id, requirement_ids=selected_ids,
+                    case_type=recommendation["selected_case_type"], case_count=int(count),
+                    auto_case_count=auto_case_count, requested_mode=mode,
+                    use_project_kb=use_kb, use_history=history,
                     recommended_test_type=recommendation.get("recommended_case_type", ""),
                     selected_test_type=recommendation["selected_case_type"],
                     test_type_overridden=bool(recommendation.get("case_type_manually_overridden")),
                     test_type_confidence=float(recommendation.get("recommendation_confidence") or 0),
                     test_type_reasons=list(recommendation.get("recommendation_reasons") or []),
-                    additional_instructions=manual_note.strip(),
-            ), selected_ids, batch_id, progress_callback=show_stream, force=force_regenerate)
-            st.session_state[f"requirement_result_{project_id}"] = batch_result
-            progress_bar.progress(1.0, text="批量生成结束，已完成项均已持久化保存。")
-            stream_area.empty()
-            if batch_result["failed"]:
-                st.warning(
-                    f"批次结束：成功 {len(batch_result['completed'])}，"
-                    f"断点跳过 {len(batch_result['skipped'])}，失败 {len(batch_result['failed'])}。"
-                )
-                st.json(batch_result["failed"])
-            else:
-                st.success(
-                    f"批次完成：新生成 {len(batch_result['completed'])} 条需求，"
-                    f"断点跳过 {len(batch_result['skipped'])} 条需求。"
-                )
+                    additional_instructions=manual_note.strip())
+            def run_background(cancelled):
+                return service.generate_requirement_batch(generation_request, selected_ids, batch_id,
+                    progress_callback=None, force=force_regenerate, cancellation_callback=cancelled)
+            st.session_state[task_key]=submit_generation(run_background, selected_ids[0],
+                service.settings.test_case_model, mode)
+            st.rerun()
         except Exception as exc:
             st.error(f"批量生成启动失败：{type(exc).__name__}: {exc}")
+    task=st.session_state.get(task_key)
+    if task:
+        if task.future.done():
+            try:
+                batch_result=task.future.result()
+                st.session_state[f"requirement_result_{project_id}"]=batch_result
+                if batch_result.get("cancelled"): st.warning("本次生成已取消；不完整输出未持久化，可用相同上下文重新生成。")
+                elif batch_result.get("failed"): st.warning(f"批次结束：成功 {len(batch_result['completed'])}，失败 {len(batch_result['failed'])}。")
+                else: st.success(f"批次完成：新生成 {len(batch_result['completed'])} 条需求。")
+            except Exception as exc: st.error(f"后台生成失败：{type(exc).__name__}: {exc}")
+            st.session_state.pop(task_key,None)
+        else:
+            st.info({"当前需求":task.requirement_id,"当前模型":task.model,"已用时间秒":round(time.monotonic()-task.started_at,1),
+                     "当前运行模式":task.mode,"状态":"running"})
+            if st.button("停止本次生成",type="secondary",key=f"cancel_generation_{project_id}"):
+                task.cancel(); st.warning("已发送停止信号；当前流式响应将关闭，部分输出只保留在诊断日志中。")
     if st.session_state.get(preview_state_key):
         with st.expander("生成上下文预览"):
             st.json(st.session_state[preview_state_key])
@@ -583,4 +564,18 @@ def render_generation_page(
     if scores:
         with st.expander("历史质量评分"):
             st.dataframe(scores, hide_index=True, use_container_width=True)
+    with st.expander("最近运行日志"):
+        run_root = Path(__file__).resolve().parents[1] / "logs" / "runs"
+        recent = []
+        for manifest_path in sorted(run_root.glob("*/manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:20]:
+            try:
+                item = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if item.get("project_id") != project_id: continue
+            recent.append({"时间":item.get("started_at"),"操作":item.get("operation_name"),
+                "项目":item.get("project_name"),"需求":item.get("requirement_id"),"测试类型":item.get("test_type"),
+                "模型":item.get("model"),"Agent/Direct":item.get("generation_mode"),"状态":item.get("status"),
+                "run_id":item.get("run_id"),"日志路径":str(manifest_path.parent)})
+        st.dataframe(recent, hide_index=True, use_container_width=True) if recent else st.caption("暂无运行日志")
     st.info("生成后进入“用例审查”，可人工修改、单条对话优化并检查覆盖来源。")

@@ -45,3 +45,14 @@ def test_model_declared_unrelated_page_is_persisted_as_unmatched(tmp_path, monke
     with manager.connections.connection() as conn:
         row=conn.execute("SELECT page_id,status,need_human_confirm FROM requirement_page_links WHERE project_id=?",(project_id,)).fetchone()
     assert row['page_id']=='' and row['status']=='unmatched' and row['need_human_confirm']==1
+
+def test_human_can_confirm_page_while_element_remains_pending(tmp_path):
+    manager=ProjectManager(tmp_path/'db.sqlite'); project_id=manager.create_project('page-pending')['project_id']; service=UIApplicationService(manager,None,Settings(enable_ollama=False))
+    with manager.connections.transaction() as conn:
+        conn.execute("INSERT INTO html_pages(project_id,page_id,title,page_path,source_asset) VALUES(?,?,?,?,?)",(project_id,'PAGE-NEWS','新闻门户','news.html','fixture.html'))
+        conn.execute("INSERT INTO requirement_page_links(project_id,link_id,function_id,page_id,confidence,reason,status,need_human_confirm,model_name,evidence_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(project_id,'LINK-P','ZH_TYMH_XWMH','PAGE-NEWS',.55,'页面主题相关但需求较抽象','low_confidence',1,'fixture','{}'))
+    service.save_binding_reviews(project_id,[{'binding_type':'page','link_id':'LINK-P','page_id':'PAGE-NEWS','confidence':.55,'reason':'页面主题相关但需求较抽象','page_confirmed_element_pending':True,'confirmed_by':'reviewer'}])
+    with manager.connections.connection() as conn:
+        row=conn.execute("SELECT status,need_human_confirm,evidence_json FROM requirement_page_links WHERE project_id=?",(project_id,)).fetchone()
+    assert row['status']=='page_confirmed_element_pending' and row['need_human_confirm']==0
+    evidence=__import__('json').loads(row['evidence_json']); assert evidence['human_confirmation']['confirmed_by']=='reviewer'

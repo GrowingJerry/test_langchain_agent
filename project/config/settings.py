@@ -66,6 +66,68 @@ class Settings(BaseModel):
     langsmith_tracing: bool = False
     data_dir: Path = PROJECT_ROOT / "data"
     outputs_dir: Path = PROJECT_ROOT / "outputs"
+    case_id_sequence_width: int = Field(default=4, ge=3, le=8)
+    case_id_fallback_prefix: str = "REQ"
+    case_id_reuse_deleted_sequence: bool = False
+    generation_context_token_budget: int = Field(default=6000, ge=1024, le=240000)
+    generation_output_token_reserve: int = Field(default=4096, ge=256, le=65536)
+    generation_context_safety_ratio: float = Field(default=0.85, ge=0.5, le=0.95)
+    generation_max_cases_per_requirement: int = Field(default=10, ge=1, le=100)
+    generation_max_output_chars: int = Field(default=200000, ge=1000, le=5000000)
+    generation_max_step_chars: int = Field(default=2000, ge=100, le=20000)
+    generation_max_field_chars: int = Field(default=12000, ge=100, le=100000)
+    generation_max_seconds: int = Field(default=600, ge=10, le=7200)
+    generation_repetition_guard_enabled: bool = True
+    generation_repeat_window_chars: int = Field(default=160, ge=20, le=10000)
+    generation_repeat_threshold: int = Field(default=4, ge=2, le=50)
+    generation_max_same_char_run: int = Field(default=24, ge=4, le=1000)
+    generation_max_digit_run: int = Field(default=32, ge=4, le=2000)
+    generation_json_progress_timeout_seconds: int = Field(default=90, ge=5, le=1800)
+    html_max_total_elements: int = Field(default=5000, ge=100, le=100000)
+    html_max_elements_per_page: int = Field(default=100, ge=10, le=10000)
+    html_max_candidate_pages: int = Field(default=5, ge=1, le=100)
+    html_max_visible_text_chars: int = Field(default=8000, ge=500, le=200000)
+    html_max_element_text_chars: int = Field(default=240, ge=20, le=5000)
+    html_max_attribute_chars: int = Field(default=240, ge=20, le=5000)
+    html_max_page_regions: int = Field(default=50, ge=1, le=1000)
+    html_max_forms: int = Field(default=50, ge=1, le=1000)
+    html_max_tables: int = Field(default=50, ge=1, le=1000)
+    html_max_dialogs: int = Field(default=50, ge=1, le=1000)
+    playwright_max_observations: int = Field(default=50, ge=1, le=1000)
+    playwright_max_observation_text_chars: int = Field(default=10000, ge=100, le=200000)
+    playwright_max_dom_chars: int = Field(default=50000, ge=1000, le=1000000)
+    playwright_max_visible_text_chars: int = Field(default=20000, ge=100, le=500000)
+    playwright_operation_timeout: int = Field(default=10000, ge=100, le=120000)
+    playwright_worker_timeout: int = Field(default=120, ge=5, le=3600)
+    playwright_viewport_width: int = Field(default=1366, ge=320, le=7680)
+    playwright_viewport_height: int = Field(default=768, ge=240, le=4320)
+    generation_max_history_examples: int = Field(default=2, ge=0, le=100)
+    generation_max_related_chunks: int = Field(default=3, ge=0, le=100)
+    generation_max_related_chunk_chars: int = Field(default=1200, ge=100, le=50000)
+    generation_max_page_observations: int = Field(default=20, ge=0, le=1000)
+    binding_auto_confirm_threshold: float = Field(default=0.8, ge=0, le=1)
+    binding_max_candidate_pages: int = Field(default=5, ge=1, le=100)
+    binding_max_element_ids: int = Field(default=10, ge=1, le=1000)
+    binding_model_num_predict: int = Field(default=2000, ge=128, le=65536)
+    binding_model_timeout: int = Field(default=120, ge=1, le=3600)
+    general_extraction_block_chars: int = Field(default=12000, ge=1000, le=200000)
+    general_extraction_group_chars: int = Field(default=24000, ge=1000, le=500000)
+    general_extraction_num_predict: int = Field(default=4096, ge=256, le=65536)
+    general_extraction_timeout: int = Field(default=300, ge=5, le=3600)
+    run_log_retention_days: int = Field(default=30, ge=1, le=3650)
+    run_log_max_files: int = Field(default=500, ge=10, le=100000)
+    run_log_max_file_bytes: int = Field(default=2_000_000, ge=10000, le=100_000_000)
+    run_log_save_model_request: bool = True
+    run_log_save_model_response: bool = True
+    run_log_redact_sensitive_data: bool = True
+    html_evidence_functional: str = "strong"
+    html_evidence_ui: str = "strong"
+    html_evidence_usability: str = "strong"
+    html_evidence_compatibility: str = "medium"
+    html_evidence_security: str = "partial"
+    html_evidence_performance: str = "weak"
+    html_evidence_interface: str = "off"
+    html_evidence_reliability: str = "trigger_only"
 
     @field_validator("ollama_base_url")
     @classmethod
@@ -91,6 +153,14 @@ class Settings(BaseModel):
             raise ValueError(
                 "LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL"
             )
+        return normalized
+
+    @field_validator("case_id_fallback_prefix")
+    @classmethod
+    def _validate_case_prefix(cls, value: str) -> str:
+        normalized = "".join(ch for ch in value.upper() if ch.isalnum() or ch == "_")
+        if not normalized:
+            raise ValueError("CASE_ID_FALLBACK_PREFIX must contain letters or digits")
         return normalized
 
     @classmethod

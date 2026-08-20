@@ -212,7 +212,10 @@ def iter_offline_html_elements(content: str | bytes, page_path: str = "index.htm
             if attrs.get("id"): locators.append(f"#{attrs['id']}")
             locators.append(raw.path)
             hidden="hidden" in attrs or attrs.get("type")=="hidden" or "display:none" in attrs.get("style","").replace(" ","")
-            yield HtmlElement(element_id=element_id,page_id=page_id,tag=raw.tag,element_type=attrs.get("type",raw.tag),text=raw.text.strip(),attributes=attrs,label=label,visible=not hidden,enabled="disabled" not in attrs,default_value=attrs.get("value",""),form_id=raw.form_id,local_events=sorted(k for k in attrs if k.lower().startswith("on")),locator_candidates=locators,semantic_position="页面表单区域",dom_path=raw.path)
+            landmark = next((tag for tag in reversed(raw.path.split("/")) if tag in {"header","nav","main","aside","section","form","dialog","fieldset","table"}), "")
+            region_names={"header":"页眉区","nav":"导航区","main":"主内容区","aside":"侧栏区","section":"内容分区","form":"表单区","dialog":"对话框","fieldset":"字段组","table":"表格区"}
+            semantic_position=region_names.get(landmark, "方位待确认")
+            yield HtmlElement(element_id=element_id,page_id=page_id,tag=raw.tag,element_type=attrs.get("type",raw.tag),text=raw.text.strip(),attributes=attrs,label=label,visible=not hidden,enabled="disabled" not in attrs,default_value=attrs.get("value",""),form_id=raw.form_id,local_events=sorted(k for k in attrs if k.lower().startswith("on")),locator_candidates=locators,semantic_position=semantic_position,dom_path=raw.path)
     return {"page_id":page_id,"title":parser.title or page_path,"path":page_path},generate()
 
 

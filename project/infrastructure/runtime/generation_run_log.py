@@ -14,24 +14,39 @@ from typing import Any
 
 
 class GenerationRunLog:
-    def __init__(self, project_root: Path, project_id: str) -> None:
+    def __init__(self, project_root: Path, project_id: str, *, settings: Any = None,
+                 operation_type: str = "test_case_generation", operation_name: str = "测试用例生成",
+                 project_name: str = "", requirement_id: str = "", requirement_name: str = "",
+                 test_type: str = "", generation_mode: str = "", model: str = "") -> None:
         self.run_id = "RUN-" + uuid.uuid4().hex[:12].upper()
         self.project_id = project_id
-        self.root = project_root / "logs" / "runs" / self.run_id
+        self.settings = settings
+        self.started_at = self.now()
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        safe_req = re.sub(r"[^A-Za-z0-9_\-\u4e00-\u9fff]+", "_", requirement_id or "NO_REQ")[:80]
+        self.readable_label = f"{stamp}__{operation_name}__{safe_req}__{self.run_id}"
+        self.root = project_root / "logs" / "runs" / self.readable_label
         self.root.mkdir(parents=True, exist_ok=True)
+        self._apply_retention(self.root.parent)
         self.log_path = self.root / "run.log"
-        self._write("manifest.json", {"run_id": self.run_id, "project_id": project_id, "started_at": self.now(), "status": "running"})
+        self.manifest = {"run_id": self.run_id, "operation_type": operation_type,
+            "operation_name": operation_name, "project_id": project_id, "project_name": project_name,
+            "requirement_id": requirement_id, "requirement_name": requirement_name, "test_type": test_type,
+            "generation_mode": generation_mode, "model": model, "started_at": self.started_at,
+            "ended_at": "", "status": "running", "case_ids": [], "failure_reason": ""}
+        self._write("manifest.json", self.manifest)
 
     @staticmethod
     def now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    @staticmethod
-    def _safe(value: Any) -> Any:
+    def _safe(self, value: Any) -> Any:
         text = json.dumps(value, ensure_ascii=False, default=str)
-        text = re.sub(r"(?i)(password|token|secret|api[_-]?key)\s*[=:]\s*[^,\s\"}]+", r"\1=[redacted]", text)
-        if len(text.encode("utf-8")) > 2_000_000:
-            text = text[:1_000_000] + '"…[diagnostic artifact bounded]"'
+        if not self.settings or self.settings.run_log_redact_sensitive_data:
+            text = re.sub(r"(?i)(password|token|secret|api[_-]?key)\s*[=:]\s*[^,\s\"}]+", r"\1=[redacted]", text)
+        max_bytes = getattr(self.settings, "run_log_max_file_bytes", 2_000_000)
+        if len(text.encode("utf-8")) > max_bytes:
+            text = text[:max_bytes // 2] + '"…[diagnostic artifact bounded]"'
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -41,7 +56,20 @@ class GenerationRunLog:
         (self.root / name).write_text(json.dumps(self._safe(value), ensure_ascii=False, indent=2), encoding="utf-8")
 
     def artifact(self, name: str, value: Any) -> None:
+        if name.startswith("03-model-request") and self.settings and not self.settings.run_log_save_model_request: return
+        if name.startswith("04-model") and self.settings and not self.settings.run_log_save_model_response: return
         self._write(name, value)
+
+    def _apply_retention(self, run_root: Path) -> None:
+        if not self.settings: return
+        now=datetime.now().timestamp(); cutoff=now-self.settings.run_log_retention_days*86400
+        directories=sorted((p for p in run_root.iterdir() if p.is_dir()),key=lambda p:p.stat().st_mtime,reverse=True)
+        for path in directories[self.settings.run_log_max_files:]:
+            if path.stat().st_mtime < cutoff:
+                for child in path.iterdir():
+                    if child.is_file(): child.unlink(missing_ok=True)
+                try: path.rmdir()
+                except OSError: pass
 
     def event(self, stage: str, message: str, **details: Any) -> None:
         line = f"[{self.run_id}][{stage}] {message}"
@@ -57,12 +85,15 @@ class GenerationRunLog:
             stream.write(traceback.format_exc() + "\n")
 
     def finish(self, status: str, **details: Any) -> None:
-        self._write("manifest.json", {"run_id": self.run_id, "project_id": self.project_id, "ended_at": self.now(), "status": status, **details})
+        self.manifest.update({"ended_at": self.now(), "status": status, **details})
+        if "error" in details and not self.manifest.get("failure_reason"):
+            self.manifest["failure_reason"] = str(details["error"])
+        self._write("manifest.json", self.manifest)
 
     def diagnostic_zip(self) -> Path:
         target = self.root / f"{self.run_id}-diagnostics.zip"
         with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in self.root.iterdir():
-                if path.is_file() and path != target and path.stat().st_size <= 2_000_000:
+                if path.is_file() and path != target and path.stat().st_size <= getattr(self.settings, "run_log_max_file_bytes", 2_000_000):
                     archive.write(path, path.name)
         return target

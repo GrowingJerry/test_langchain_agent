@@ -212,7 +212,8 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
         if bindings:
             for row in bindings:
                 row["confirmed"] = row.get("status") == "confirmed"
-            st.caption("人工确认或调整页面/元素绑定；此处不要求填写 CSS/XPath 等技术定位字段。")
+                row["page_confirmed_element_pending"] = row.get("status") == "page_confirmed_element_pending"
+            st.caption("页面相关但暂不能确定单个元素时，对页面行勾选 page_confirmed_element_pending；无需填写 CSS/XPath/locator。明确不相关页面仍禁止确认。")
             editable_bindings = st.data_editor(
                 bindings,
                 hide_index=True,

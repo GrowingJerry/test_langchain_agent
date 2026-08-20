@@ -33,6 +33,8 @@ from infrastructure.llm.ollama_health import OllamaHealthClient
 from application.services.fallback_generation_service import FallbackGenerationService
 from application.services.generation_package import build_generation_package
 from infrastructure.runtime.generation_run_log import GenerationRunLog
+from infrastructure.llm.stream_guard import StreamGuard, GenerationTerminated
+from application.services.case_id_service import CaseIdService
 
 
 GenerationMode = Literal["agent", "model_direct", "rule_fallback", "manual"]
@@ -141,12 +143,20 @@ class GenerationService:
         self,
         request: GenerationRequest,
         progress_callback: Callable[[dict[str, str]], None] | None = None,
+        cancellation_callback: Callable[[], bool] | None = None,
     ) -> GenerationResult:
         """Validate, generate, score, persist, and return one explicit-mode result."""
         self._validate_scope(request)
         if len(request.requirement_ids) > 1:
             raise ValueError("每次模型调用只能整批生成一个最低功能需求；请使用需求批处理入口")
-        run_log = GenerationRunLog(Path(__file__).resolve().parents[2], request.project_id)
+        requirement = self.manager.get_requirement(request.project_id, request.requirement_ids[0]) if request.requirement_ids else {}
+        project = self.manager.get_project(request.project_id) or {}
+        run_log = GenerationRunLog(Path(__file__).resolve().parents[2], request.project_id,
+            settings=self.settings, operation_type="test_case_generation", operation_name="测试用例生成",
+            project_name=str(project.get("name") or project.get("project_name") or ""),
+            requirement_id=request.requirement_ids[0] if request.requirement_ids else "",
+            requirement_name=str((requirement or {}).get("title") or ""), test_type=request.case_type,
+            generation_mode=request.requested_mode, model=self.settings.test_case_model)
         started = time.monotonic()
         self._emit(progress_callback, "status", "正在读取需求、场景和项目知识…")
         contexts = self._build_contexts(request)
@@ -156,6 +166,8 @@ class GenerationService:
                 context,
                 num_ctx=self.settings.ollama_num_ctx,
                 num_predict=self.settings.ollama_structured_num_predict,
+                case_type=request.case_type,
+                settings=self.settings,
             )
             for context in contexts
         ]
@@ -253,7 +265,8 @@ class GenerationService:
                     self._emit(progress_callback, "status", "系统将使用完全相同的 GenerationPackage 切换到 Direct 模式。")
                     try:
                         canonical_cases = self._generate_with_direct_model(
-                            packages, request, agent_failure, progress_callback, run_log
+                            packages, request, agent_failure, progress_callback, run_log,
+                            cancellation_callback,
                         )
                         direct_fingerprints = [item["fingerprint"] for item in packages]
                         agent_direct_context_equal = fingerprints == direct_fingerprints
@@ -281,8 +294,24 @@ class GenerationService:
 
         if not canonical_cases:
             raise StructuredOutputError("Generation produced no test cases")
+        if len(canonical_cases) > min(request.case_count, self.settings.generation_max_cases_per_requirement):
+            raise StructuredOutputError("模型返回用例数超过本次请求或 GENERATION_MAX_CASES_PER_REQUIREMENT")
+        for case in canonical_cases:
+            payload = case.model_dump(mode="json")
+            for field_name, value in payload.items():
+                if isinstance(value, str) and len(value) > self.settings.generation_max_field_chars:
+                    raise StructuredOutputError(f"用例字段 {field_name} 超过 GENERATION_MAX_FIELD_CHARS")
+            if any(len(step) > self.settings.generation_max_step_chars for step in case.test_steps):
+                raise StructuredOutputError("用例步骤超过 GENERATION_MAX_STEP_CHARS")
         if mode in ("agent", "model_direct"):
             canonical_cases = self._validate_and_render_detailed_cases(canonical_cases, packages)
+        if cancellation_callback and cancellation_callback():
+            run_log.finish("cancelled", failure_reason="client_cancelled")
+            raise StructuredOutputError("生成已由用户取消；不保存未完成用例")
+        requirement_id = request.requirement_ids[0] if request.requirement_ids else ""
+        canonical_cases = CaseIdService(self.manager, self.settings).assign(
+            request.project_id, requirement_id, canonical_cases
+        )
         metadata = self._generation_metadata(request)
         self._emit(progress_callback, "status", "正在校验质量并保存测试用例…")
         run_id = self.manager.create_generation_run(
@@ -302,7 +331,9 @@ class GenerationService:
         run_log.artifact("05-parsed-output.json", [record.persistence_data for record in records])
         run_log.artifact("06-validation-result.json", [record.quality for record in records])
         run_log.artifact("07-persistence-result.json", {"case_count": len(records), "generation_run_id": run_id})
-        run_log.finish("completed", mode=mode, case_count=len(records), elapsed_seconds=round(time.monotonic()-started, 3), fingerprints=fingerprints)
+        run_log.finish("completed", generation_mode=mode, case_count=len(records),
+                       case_ids=[record.case.case_id for record in records],
+                       elapsed_seconds=round(time.monotonic()-started, 3), fingerprints=fingerprints)
         diagnostic_bundle = run_log.diagnostic_zip()
         if not overall_missing:
             overall_missing = list(
@@ -446,6 +477,7 @@ class GenerationService:
         agent_failure: str,
         progress_callback: Callable[[dict[str, str]], None] | None = None,
         run_log: GenerationRunLog | None = None,
+        cancellation_callback: Callable[[], bool] | None = None,
     ) -> List[TestCase]:
         if self.direct_model_generator is not None:
             return self._prepare_model_direct_cases(
@@ -466,19 +498,21 @@ class GenerationService:
         if progress_callback:
             data: Dict[str, Any] = {}
             content_parts: List[str] = []
-            for line in response.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                event = json.loads(line)
-                part = str(((event.get("message") or {}).get("content")) or "")
-                thinking = str(((event.get("message") or {}).get("thinking")) or "")
-                if thinking:
-                    self._emit(progress_callback, "reasoning", thinking)
-                if part:
-                    content_parts.append(part)
-                    self._emit(progress_callback, "token", part)
-                data = event
-            data["message"] = {**(data.get("message") or {}), "content": "".join(content_parts)}
+            def events():
+                for line in response.iter_lines(decode_unicode=True):
+                    if line:
+                        yield json.loads(line)
+            try:
+                data, content = StreamGuard(self.settings, cancellation_callback or (lambda: False)).collect(
+                    events(), lambda part: self._emit(progress_callback, "token", part))
+            except GenerationTerminated as exc:
+                response.close()
+                if run_log:
+                    run_log.artifact("04-partial-model-response.json", {"content": exc.partial_output})
+                    run_log.event("需求生成", "流式生成已终止", termination_reason=exc.reason,
+                                  received_chars=len(exc.partial_output))
+                raise StructuredOutputError(f"模型输出已终止：termination_reason={exc.reason}") from exc
+            data["message"] = {**(data.get("message") or {}), "content": content}
         else:
             data = response.json()
         if run_log:
@@ -514,15 +548,15 @@ class GenerationService:
             str(page.get("page_id") or "")
             for wrapped in packages
             for page in wrapped.get("package", {}).get("page_evidence", [])
-            if page.get("binding_status") == "confirmed" and page.get("page_id")
+            if page.get("binding_status") in {"confirmed", "page_confirmed_element_pending"} and page.get("page_id")
         }
         valid_elements = {
             str(element.get("element_id") or "")
             for wrapped in packages
             for page in wrapped.get("package", {}).get("page_evidence", [])
-            if page.get("binding_status") == "confirmed"
+            if page.get("binding_status") in {"confirmed", "page_confirmed_element_pending"}
             for element in page.get("elements", [])
-            if element.get("element_id") and element.get("binding_status") == "confirmed"
+            if element.get("element_id") and element.get("binding_status") in {"confirmed", "selectable_on_generation"}
         }
         element_evidence: Dict[str, Dict[str, Any]] = {}
         observed_messages: set[str] = set()
@@ -540,11 +574,11 @@ class GenerationService:
                     )
                 for element in page.get("elements", []):
                     element_id = str(element.get("element_id") or "")
-                    if element_id and element.get("binding_status") == "confirmed":
+                    if element_id and element.get("binding_status") in {"confirmed", "selectable_on_generation"}:
                         element_evidence[element_id] = {
                             "page_id": page.get("page_id") or "",
                             "page_name": page.get("title") or page.get("page_name") or "",
-                            "region": element.get("region") or element.get("position") or "",
+                            "region": element.get("region") or element.get("relative_position") or element.get("semantic_position") or "",
                             "element_name": element.get("label") or element.get("text") or element.get("name") or "",
                             "element_type": element.get("element_type") or element.get("tag") or "",
                         }

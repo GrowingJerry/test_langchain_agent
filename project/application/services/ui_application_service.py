@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
+import inspect
 import logging
 import time
 from infrastructure.runtime_diagnostics import configure_runtime_logging
+from infrastructure.repositories.base import now_iso
+from infrastructure.database.json_codec import dumps_json
 
 from config.settings import Settings, settings as default_settings
 from chains.test_case_review import TestCaseReviewChain
@@ -395,13 +398,16 @@ class UIApplicationService:
             context,
             num_ctx=self.settings.ollama_num_ctx,
             num_predict=self.settings.ollama_structured_num_predict,
+            case_type=case_type,
+            settings=self.settings,
         )
 
     def generate(
-        self, request: GenerationRequest, progress_callback: Any = None
+        self, request: GenerationRequest, progress_callback: Any = None,
+        cancellation_callback: Any = None,
     ) -> GenerationResult:
         return self.generation.generate_test_cases(
-            request, progress_callback=progress_callback
+            request, progress_callback=progress_callback, cancellation_callback=cancellation_callback
         )
 
     def generate_requirement_batch(
@@ -411,6 +417,7 @@ class UIApplicationService:
         batch_id: str,
         progress_callback: Any = None,
         force: bool = False,
+        cancellation_callback: Any = None,
     ) -> Dict[str, Any]:
         """Generate requirements sequentially and checkpoint every completed item."""
         ordered_ids = list(dict.fromkeys(str(item) for item in requirement_ids if item))
@@ -427,6 +434,9 @@ class UIApplicationService:
             "diagnostic_runs": [],
         }
         for index, requirement_id in enumerate(ordered_ids, 1):
+            if cancellation_callback and cancellation_callback():
+                summary["cancelled"] = True
+                break
             if requirement_id in completed and not force:
                 summary["skipped"].append(requirement_id)
                 if progress_callback:
@@ -455,7 +465,11 @@ class UIApplicationService:
 
             try:
                 relay({"kind": "batch", "content": f"开始生成 {requirement_id}"})
-                result = self.generate(request, progress_callback=relay)
+                generate_params = inspect.signature(self.generate).parameters
+                kwargs = {"progress_callback": relay}
+                if "cancellation_callback" in generate_params:
+                    kwargs["cancellation_callback"] = cancellation_callback
+                result = self.generate(request, **kwargs)
                 dumped = result.model_dump(mode="json")
                 summary["cases"].extend(dumped.get("cases") or [])
                 summary["diagnostic_runs"].append({
@@ -761,6 +775,7 @@ class UIApplicationService:
                 page_id=str(row.get("page_id") or "")
                 element_id=str(row.get("confirmed_element_id") or "")
                 confirmed=bool(row.get("confirmed"))
+                page_pending=bool(row.get("page_confirmed_element_pending"))
                 confidence=float(row.get("confidence") or 0)
                 reason=str(row.get("reason") or "")
                 if confirmed and (confidence <= 0 or any(word in reason for word in ("无关","不相关","未找到匹配"))):
@@ -772,7 +787,9 @@ class UIApplicationService:
                         continue
                     conn.execute("UPDATE requirement_element_links SET page_id=?,confirmed_element_id=?,status=?,need_human_confirm=? WHERE project_id=? AND link_id=?",(page_id,element_id,"confirmed" if confirmed and element_id else "proposed",0 if confirmed and element_id else 1,project_id,link_id))
                 else:
-                    conn.execute("UPDATE requirement_page_links SET page_id=?,status=?,need_human_confirm=? WHERE project_id=? AND link_id=?",(page_id,"confirmed" if confirmed else "proposed",0 if confirmed else 1,project_id,link_id))
+                    status = "page_confirmed_element_pending" if page_pending else ("confirmed" if confirmed else "proposed")
+                    evidence = dumps_json({"human_confirmation":{"confirmed_by":str(row.get("confirmed_by") or "user"),"confirmed_at":now_iso(),"selected_status":status},"original_model":{"confidence":confidence,"reason":reason}})
+                    conn.execute("UPDATE requirement_page_links SET page_id=?,status=?,need_human_confirm=?,evidence_json=? WHERE project_id=? AND link_id=?",(page_id,status,0 if status in {"confirmed","page_confirmed_element_pending"} else 1,evidence,project_id,link_id))
 
     def requirement_review_rows(self,project_id:str)->List[Dict[str,Any]]:
         from infrastructure.database.json_codec import loads_json

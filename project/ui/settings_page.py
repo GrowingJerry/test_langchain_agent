@@ -36,7 +36,17 @@ def render_settings_page(config: dict) -> None:
         "实际请求 num_ctx": settings.ollama_num_ctx,
         "num_predict": settings.ollama_structured_num_predict,
         "超时秒数": settings.ollama_timeout,
+        "输入 token 预算": settings.generation_context_token_budget,
+        "输出 token 预留": settings.generation_output_token_reserve,
+        "上下文安全比例": settings.generation_context_safety_ratio,
+        "最大用例数/需求": settings.generation_max_cases_per_requirement,
+        "最大生成秒数": settings.generation_max_seconds,
+        "HTML每页元素上限": settings.html_max_elements_per_page,
+        "绑定候选页上限": settings.binding_max_candidate_pages,
         "模型服务可用": available,
         "说明": "生成前会显示输入 token 估算；可能超限时按证据优先级压缩，仍超限则阻断。",
     })
+    safe_limit = int(settings.ollama_num_ctx * settings.generation_context_safety_ratio)
+    if settings.generation_context_token_budget + settings.generation_output_token_reserve > safe_limit:
+        st.warning(f"输入预算 + 输出预留超过安全上下文 {safe_limit} tokens；生成时会按证据优先级压缩，仍超限则阻断。")
     st.session_state.runtime_config = config

@@ -94,7 +94,9 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
     from playwright.sync_api import sync_playwright
     started=time.monotonic(); evidence_dir.mkdir(parents=True,exist_ok=True); events=[]; console=[]; blocked=[]; states=0
     with local_site_server(root) as base,sync_playwright() as pw:
-        browser=pw.chromium.launch(headless=True); context=browser.new_context(accept_downloads=False)
+        from config.settings import settings
+        from domain.rules.element_position import position_evidence
+        browser=pw.chromium.launch(headless=True); context=browser.new_context(accept_downloads=False,viewport={"width":settings.playwright_viewport_width,"height":settings.playwright_viewport_height})
         def route_handler(route):
             host=(urlparse(route.request.url).hostname or "").lower()
             if host not in {"127.0.0.1","localhost"}: blocked.append(route.request.url); route.abort("blockedbyclient")
@@ -116,6 +118,8 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
                 target,reason=resolved; locator=reason+":"+accessible
             else: target=page.locator(locator)
             if target.count()!=1: events.append({"action_id":f"ACT-{index+1}","type":"ambiguous_target","semantic_target":semantic,"candidate_count":target.count(),"success":False,"failure_reason":"定位结果不是唯一元素","expected_source":"html_observed"}); continue
+            target_box=target.bounding_box(); viewport={"width":settings.playwright_viewport_width,"height":settings.playwright_viewport_height}
+            target_position=position_evidence(target_box,viewport,str(semantic.get("region") or ""))
             if kind=="click": target.click()
             elif kind=="input": target.fill(str(action.get("value","")))
             elif kind=="select": target.select_option(str(action.get("value","")))
@@ -124,7 +128,7 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
             else: events.append({"type":"unsupported_action","action":action}); continue
             page.wait_for_timeout(100); after={"url":page.url,"text":page.locator("body").inner_text()[:10000],"html":page.content()[:50000]}; after_path=evidence_dir/f"{index:03d}-after.png"; page.screenshot(path=str(after_path),full_page=True)
             boxes=page.locator("input,button,select,textarea,a").evaluate_all("els=>els.map(e=>{const r=e.getBoundingClientRect();return {tag:e.tagName.toLowerCase(),id:e.id,text:e.innerText||e.value||'',disabled:!!e.disabled,checked:!!e.checked,box:{x:r.x,y:r.y,width:r.width,height:r.height}}})")
-            events.append({"action_id":f"ACT-{index+1}","page_id":entry,"type":"interaction","action":kind,"semantic_target":semantic,"final_locator":locator,"locator_reason":reason,"purpose":action.get("purpose",""),"before_dom_summary":before["html"],"after_dom_summary":after["html"],"url_before":before["url"],"url_after":after["url"],"visible_text_before":before["text"],"visible_text_after":after["text"],"dialogs":list(dialogs),"new_windows":list(popups),"changed":before!=after,"controls":boxes,"before_screenshot":str(before_path),"after_screenshot":str(after_path),"success":True,"failure_reason":"","expected_source":"html_observed"}); dialogs.clear(); popups.clear(); states+=2
+            events.append({"action_id":f"ACT-{index+1}","page_id":entry,"type":"interaction","action":kind,"semantic_target":semantic,"target_box":target_box,"position_evidence":target_position,"final_locator":locator,"locator_reason":reason,"purpose":action.get("purpose",""),"before_dom_summary":before["html"],"after_dom_summary":after["html"],"url_before":before["url"],"url_after":after["url"],"visible_text_before":before["text"],"visible_text_after":after["text"],"dialogs":list(dialogs),"new_windows":list(popups),"changed":before!=after,"controls":boxes,"before_screenshot":str(before_path),"after_screenshot":str(after_path),"success":True,"failure_reason":"","expected_source":"html_observed"}); dialogs.clear(); popups.clear(); states+=2
         result={"entry":entry,"final_url":page.url,"visible_text":page.locator("body").inner_text()[:20000],"events":events,"console_errors":[x for x in console if x["type"]=="error"],"blocked_requests":blocked,"elapsed_seconds":round(time.monotonic()-started,3),"limits":asdict(limits)}; browser.close(); return result
 
 def automatic_safe_plan(root:Path,entry:str,limits:SiteLimits=SiteLimits())->list[dict[str,Any]]:

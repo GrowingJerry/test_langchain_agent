@@ -7,6 +7,8 @@ import json
 from typing import Any
 
 from domain.rules.standard_knowledge import standard_summary
+from domain.rules.evidence_policy import EvidencePolicy
+from config.settings import Settings, settings as default_settings
 
 
 WRITING_RULES = [
@@ -52,6 +54,8 @@ def build_generation_package(
     *,
     num_ctx: int,
     num_predict: int,
+    case_type: str = "功能测试",
+    settings: Settings = default_settings,
 ) -> dict[str, Any]:
     """Project-scoped whitelist projection with evidence-priority trimming."""
     requirement = dict(context.get("requirement") or {})
@@ -59,7 +63,9 @@ def build_generation_package(
     page_links = list(trace.get("requirement_page_links") or [])
     element_links = list(trace.get("requirement_element_links") or [])
     page_ids = [str(row.get("page_id")) for row in page_links if row.get("page_id")]
+    policy = EvidencePolicy.for_test_type(case_type, settings)
     element_ids = [str(row.get("confirmed_element_id")) for row in element_links if row.get("confirmed_element_id")]
+    pending_page_ids = [str(row.get("page_id")) for row in page_links if row.get("page_id") and row.get("status") == "page_confirmed_element_pending"]
     pages: dict[str, dict[str, Any]] = {}
     elements: dict[str, dict[str, Any]] = {}
     if page_ids or element_ids:
@@ -84,9 +90,33 @@ def build_generation_package(
                         detail = {}
                     item.update({key: detail.get(key) for key in (
                         "text", "label", "placeholder", "role", "name", "value",
-                        "options", "required", "readonly", "disabled", "region", "position",
+                        "options", "required", "readonly", "disabled", "region", "position", "semantic_position",
                     ) if detail.get(key) not in (None, "", [], {})})
                     elements[element_id] = item
+            if policy.include_elements:
+                for page_id in pending_page_ids:
+                    rows = conn.execute(
+                        "SELECT element_id,page_id,tag,element_type,element_json FROM html_elements WHERE project_id=? AND page_id=? ORDER BY element_id",
+                        (context.get("project_id"), page_id),
+                    ).fetchall()
+                    seen: set[tuple[str, str, str]] = set()
+                    for row in rows:
+                        item = dict(row); detail = json.loads(item.pop("element_json") or "{}")
+                        name = str(detail.get("label") or detail.get("text") or detail.get("name") or detail.get("placeholder") or "").strip()
+                        if not name or detail.get("visible") is False or detail.get("type") == "hidden":
+                            continue
+                        key = (name, str(item.get("element_type") or item.get("tag") or ""), str(detail.get("region") or ""))
+                        if key in seen: continue
+                        seen.add(key)
+                        elements[str(item["element_id"])] = _clean({**item, "name": name[:settings.html_max_element_text_chars],
+                            "region": detail.get("region"), "relative_position": detail.get("relative_position"),
+                            "position_phrase": detail.get("position_phrase"), "position_source": detail.get("position_source"),
+                            "visible": detail.get("visible", True), "enabled": not detail.get("disabled", False),
+                            "required": detail.get("required", False), "readonly": detail.get("readonly", False),
+                            "default_value": str(detail.get("value") or "")[:settings.html_max_element_text_chars],
+                            "options": list(detail.get("options") or [])[:100]})
+                        if len([x for x in elements.values() if x.get("page_id") == page_id]) >= settings.html_max_elements_per_page:
+                            break
     page_evidence = []
     for link in page_links:
         page_id = str(link.get("page_id") or "")
@@ -96,6 +126,9 @@ def build_generation_package(
             for item in element_links if str(item.get("page_id") or "") == page_id
             and item.get("confirmed_element_id")
         ]
+        if page_id in pending_page_ids:
+            linked_elements = [{**item, "binding_status": "selectable_on_generation"}
+                               for item in elements.values() if str(item.get("page_id")) == page_id]
         page_evidence.append(_clean({
             **pages.get(page_id, {"page_id": page_id}),
             "binding_status": link.get("status"),
@@ -103,10 +136,10 @@ def build_generation_package(
             "reason": link.get("reason"),
             "need_human_confirm": link.get("need_human_confirm"),
             "elements": linked_elements,
-            "playwright_observations": [
+            "playwright_observations": ([
                 item for item in trace.get("playwright_observations") or []
                 if str(item.get("page_id") or "") == page_id
-            ][:20],
+            ][:settings.generation_max_page_observations] if policy.include_observations else []),
         }))
     package = _clean({
         "requirement": {
@@ -127,21 +160,26 @@ def build_generation_package(
             "one_requirement_per_batch": True,
             "structured_steps": True,
             "coverage_plan_required": True,
-            "evidence_policy": trace.get("evidence_policy"),
+            "evidence_policy": policy.as_dict(),
         },
         "missing_information": context.get("missing_information") or [],
         "traceability": {
             "page_bindings": page_links,
             "element_bindings": element_links,
         },
-        "history_writing_examples": (context.get("similar_library_cases") or [])[:2],
+        "history_writing_examples": (context.get("similar_library_cases") or [])[:settings.generation_max_history_examples],
         "source_excerpt": [
-            {"chunk_id": row.get("chunk_id"), "source_document": row.get("filename") or row.get("source_document"), "content": str(row.get("content") or row.get("chunk_text") or "")[:1200]}
-            for row in (context.get("related_chunks") or [])[:3]
+            {"chunk_id": row.get("chunk_id"), "source_document": row.get("filename") or row.get("source_document"), "content": str(row.get("content") or row.get("chunk_text") or "")[:settings.generation_max_related_chunk_chars]}
+            for row in (context.get("related_chunks") or [])[:settings.generation_max_related_chunks]
         ],
     })
+    if not policy.include_elements:
+        package["page_evidence"] = [{k:v for k,v in page.items() if k not in {"elements", "forms", "tables", "dialogs"}}
+                                    for page in package.get("page_evidence", [])]
     before_tokens = estimate_tokens(package)
-    budget = max(2048, num_ctx - num_predict - 1500)
+    configured = min(settings.generation_context_token_budget,
+                     int(num_ctx * settings.generation_context_safety_ratio) - settings.generation_output_token_reserve)
+    budget = max(1024, configured)
     trimmed: list[str] = []
     if before_tokens > budget:
         for field in ("history_writing_examples", "source_excerpt"):
@@ -152,8 +190,8 @@ def build_generation_package(
     if estimate_tokens(package) > budget:
         for page in package.get("page_evidence", []):
             observations = page.get("playwright_observations") or []
-            if len(observations) > 5:
-                page["playwright_observations"] = observations[:5]
+            if len(observations) > settings.generation_max_page_observations:
+                page["playwright_observations"] = observations[:settings.generation_max_page_observations]
                 trimmed.append(f"page_evidence.{page.get('page_id')}.low_priority_observations")
     after_tokens = estimate_tokens(package)
     canonical = json.dumps(package, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
