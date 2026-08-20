@@ -29,6 +29,15 @@ def estimate_tokens(value: Any) -> int:
     return max(1, (len(text.encode("utf-8")) + 2) // 3)
 
 
+def estimate_generation_capacity(*, input_tokens: int, case_count: int, num_ctx: int,
+                                 num_predict: int, settings: Settings = default_settings) -> dict[str, Any]:
+    expected = settings.generation_expected_output_base_tokens + max(1, int(case_count)) * settings.generation_expected_tokens_per_case
+    available = max(0, min(int(num_predict), int(num_ctx) - int(input_tokens)))
+    return {"input_tokens":int(input_tokens), "expected_output_tokens":expected,
+            "available_output_tokens":available, "case_count":int(case_count),
+            "capacity_sufficient":expected <= available}
+
+
 def _clean(value: Any) -> Any:
     if isinstance(value, dict):
         removed = {
@@ -54,6 +63,7 @@ def build_generation_package(
     *,
     num_ctx: int,
     num_predict: int,
+    case_count: int = 1,
     case_type: str = "功能测试",
     settings: Settings = default_settings,
 ) -> dict[str, Any]:
@@ -68,6 +78,11 @@ def build_generation_package(
     pending_page_ids = [str(row.get("page_id")) for row in page_links if row.get("page_id") and row.get("status") == "page_confirmed_element_pending"]
     pages: dict[str, dict[str, Any]] = {}
     elements: dict[str, dict[str, Any]] = {}
+    has_project_html = False
+    with manager.connections.connection() as conn:
+        has_project_html = bool(conn.execute(
+            "SELECT 1 FROM html_pages WHERE project_id=? LIMIT 1", (context.get("project_id"),)
+        ).fetchone())
     if page_ids or element_ids:
         with manager.connections.connection() as conn:
             for page_id in dict.fromkeys(page_ids):
@@ -194,6 +209,9 @@ def build_generation_package(
                 page["playwright_observations"] = observations[:settings.generation_max_page_observations]
                 trimmed.append(f"page_evidence.{page.get('page_id')}.low_priority_observations")
     after_tokens = estimate_tokens(package)
+    input_tokens = after_tokens + settings.generation_prompt_overhead_tokens
+    capacity = estimate_generation_capacity(input_tokens=input_tokens, case_count=case_count,
+        num_ctx=num_ctx, num_predict=num_predict, settings=settings)
     canonical = json.dumps(package, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return {
         "package": package,
@@ -203,4 +221,6 @@ def build_generation_package(
         "token_budget": budget,
         "trimmed_fields": trimmed,
         "may_exceed_context": after_tokens + num_predict > num_ctx,
+        **capacity,
+        "has_project_html": has_project_html,
     }

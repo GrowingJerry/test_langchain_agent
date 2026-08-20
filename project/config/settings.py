@@ -71,6 +71,9 @@ class Settings(BaseModel):
     case_id_reuse_deleted_sequence: bool = False
     generation_context_token_budget: int = Field(default=6000, ge=1024, le=240000)
     generation_output_token_reserve: int = Field(default=4096, ge=256, le=65536)
+    generation_prompt_overhead_tokens: int = Field(default=1600, ge=0, le=32768)
+    generation_expected_tokens_per_case: int = Field(default=900, ge=200, le=10000)
+    generation_expected_output_base_tokens: int = Field(default=350, ge=0, le=10000)
     generation_context_safety_ratio: float = Field(default=0.85, ge=0.5, le=0.95)
     generation_max_cases_per_requirement: int = Field(default=10, ge=1, le=100)
     generation_max_output_chars: int = Field(default=200000, ge=1000, le=5000000)

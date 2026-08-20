@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional
 
@@ -41,6 +43,14 @@ from application.services.case_id_service import CaseIdService
 
 
 GenerationMode = Literal["agent", "model_direct", "rule_fallback", "manual"]
+
+
+class _DirectRouteComplete(Exception):
+    """Internal control flow: Auto selected Direct without attempting Agent."""
+
+
+class _DirectRouteFailed(Exception):
+    """Internal control flow: Auto Direct failed and must not be retried unchanged."""
 
 
 class GenerationRequest(BaseModel):
@@ -169,6 +179,7 @@ class GenerationService:
                 context,
                 num_ctx=self.settings.ollama_num_ctx,
                 num_predict=self.settings.ollama_structured_num_predict,
+                case_count=request.case_count,
                 case_type=request.case_type,
                 settings=self.settings,
             )
@@ -186,6 +197,7 @@ class GenerationService:
             num_ctx=self.settings.ollama_num_ctx,
             num_predict=self.settings.ollama_structured_num_predict,
             trimmed_fields=[item["trimmed_fields"] for item in packages],
+            capacity=[{key:item[key] for key in ("input_tokens","expected_output_tokens","available_output_tokens","case_count")} for item in packages],
         )
         self._emit(
             progress_callback,
@@ -199,6 +211,17 @@ class GenerationService:
         if any(item["may_exceed_context"] for item in packages):
             run_log.finish("failed", error="context_window_exceeded", fingerprints=fingerprints)
             raise StructuredOutputError("GenerationPackage 在证据优先压缩后仍可能超过配置上下文")
+        preflight_fallback_reason = "" if request.requested_mode == "manual" else self._preflight_fallback_reason(request)
+        insufficient = next((item for item in packages if not item["capacity_sufficient"]), None)
+        if insufficient and not preflight_fallback_reason and request.requested_mode != "manual":
+            run_log.finish("failed", error="generation_capacity_insufficient", capacity={key:insufficient[key] for key in ("input_tokens","expected_output_tokens","available_output_tokens","case_count")})
+            raise StructuredOutputError(
+                "生成容量预检失败：generation_capacity_insufficient；"
+                f"input_tokens={insufficient['input_tokens']}，expected_output_tokens={insufficient['expected_output_tokens']}，"
+                f"available_output_tokens={insufficient['available_output_tokens']}，case_count={insufficient['case_count']}。"
+                "请减少用例数或调整 num_ctx/num_predict。"
+            )
+        self._validate_evidence_preflight(request, packages)
         mode: GenerationMode
         fallback_reason = ""
         warnings: List[str] = []
@@ -215,14 +238,24 @@ class GenerationService:
                 for case in request.manual_cases
             ]
         else:
-            fallback_reason = self._preflight_fallback_reason(request)
+            fallback_reason = preflight_fallback_reason
             if fallback_reason:
                 mode = "rule_fallback"
                 canonical_cases = self.fallback_service.generate(
                     contexts, request.case_count, request.case_type, fallback_reason
                 )
             else:
+                prefer_direct = request.requested_mode == "auto" and self._generation_package_is_complete(packages)
                 try:
+                    if prefer_direct:
+                        self._emit(progress_callback, "status", "Auto路由：GenerationPackage已完整，优先使用Direct。")
+                        try:
+                            canonical_cases = self._generate_with_direct_model(packages, request, "auto_direct_complete_package", progress_callback, run_log, cancellation_callback)
+                        except Exception as direct_exc:
+                            raise _DirectRouteFailed() from direct_exc
+                        mode = "model_direct"
+                        agent_direct_context_equal = True
+                        raise _DirectRouteComplete()
                     runtime = AgentRuntimeContext(
                         project_id=request.project_id,
                         manager=self.manager,
@@ -246,7 +279,9 @@ class GenerationService:
                         agent_kwargs["generation_package"] = packages[0]["package"]
                     if "request_run_id" in generate_parameters:
                         agent_kwargs["request_run_id"] = run_log.run_id
-                    run_log.artifact("03-model-request.json", {"mode": "agent", "fingerprints": fingerprints, "packages": packages})
+                    schema = GeneratedCaseBundle.model_json_schema()
+                    run_log.artifact("03-model-request.json", {"mode": "agent", "fingerprints": fingerprints, "packages": packages,
+                        "schema_summary":{"title":schema.get("title"),"top_level_keys":sorted(schema),"definitions":len(schema.get("$defs") or {}),"schema_chars":len(json.dumps(schema,ensure_ascii=False)),"requested_at":datetime.now(timezone.utc).isoformat()}})
                     run_log.event("需求生成", "调用 Agent：开始", mode="agent", fingerprint=fingerprints[0] if fingerprints else "")
                     self._emit(progress_callback,"status","正在调用Agent")
                     bundle = agent.generate(agent_request, **agent_kwargs)
@@ -264,8 +299,20 @@ class GenerationService:
                     self._validate_agent_cases(canonical_cases, request)
                     run_log.artifact("04-model-raw-response.json", bundle.model_dump(mode="json"))
                     run_log.event("需求生成", "调用 Agent：完成", case_count=len(canonical_cases))
+                except _DirectRouteComplete:
+                    pass
+                except _DirectRouteFailed as routed:
+                    direct_exc = routed.__cause__ or routed
+                    run_log.failure("需求生成-Direct", direct_exc)
+                    run_log.finish("failed", error=f"{type(direct_exc).__name__}: {direct_exc}", fingerprints=fingerprints)
+                    run_log.diagnostic_zip()
+                    raise StructuredOutputError(f"Auto Direct失败且相同参数不重试：{direct_exc}") from direct_exc
                 except Exception as exc:  # noqa: BLE001 - diagnostics must capture every chain failure.
                     agent_failure = f"{type(exc).__name__}: {exc}"
+                    status_match = re.search(r'"status_code"\s*:\s*(\d+)', str(exc))
+                    run_log.artifact("03-agent-response-diagnostics.json", {"response_status":int(status_match.group(1)) if status_match else None,
+                        "error":agent_failure,"correlation_time_utc":datetime.now(timezone.utc).isoformat(),
+                        "docker_log_correlation":"match this UTC window against docker logs --timestamps; absence of POST means failure before Ollama handler"})
                     run_log.failure("需求生成-Agent", exc, fingerprint=fingerprints[0] if fingerprints else "")
                     self._emit(progress_callback, "error", f"Agent链生成失败：{agent_failure}")
                     self._emit(progress_callback, "status", "系统将使用完全相同的 GenerationPackage 切换到 Direct 模式。")
@@ -311,7 +358,7 @@ class GenerationService:
                 raise StructuredOutputError("用例步骤超过 GENERATION_MAX_STEP_CHARS")
         if mode in ("agent", "model_direct"):
             self._emit(progress_callback,"status","正在执行结构校验")
-            canonical_cases = self._validate_and_render_detailed_cases(canonical_cases, packages)
+            canonical_cases = self._validate_and_render_detailed_cases(canonical_cases, packages, request.case_type)
         if cancellation_callback and cancellation_callback():
             run_log.finish("cancelled", failure_reason="client_cancelled")
             raise StructuredOutputError("生成已由用户取消；不保存未完成用例")
@@ -456,6 +503,29 @@ class GenerationService:
         return ""
 
     @staticmethod
+    def _generation_package_is_complete(packages: List[Dict[str, Any]]) -> bool:
+        return all(
+            wrapped.get("package", {}).get("requirement")
+            and wrapped.get("package", {}).get("atomic_requirements")
+            for wrapped in packages
+        )
+
+    @staticmethod
+    def _validate_evidence_preflight(request: GenerationRequest, packages: List[Dict[str, Any]]) -> None:
+        """Block only HTML-enhanced functional generation whose project has HTML but no related page."""
+        for wrapped in packages:
+            package = wrapped.get("package", {})
+            policy = package.get("generation_requirements", {}).get("evidence_policy", {})
+            pages = package.get("page_evidence") or []
+            if (
+                request.case_type == "功能测试"
+                and policy.get("html_level") == "strong"
+                and wrapped.get("has_project_html")
+                and not any(page.get("binding_status") in {"confirmed", "page_confirmed_element_pending"} for page in pages)
+            ):
+                raise StructuredOutputError("功能HTML增强模式缺少相关确认页面；请先完成语义绑定，禁止生成后再补造页面或区域")
+
+    @staticmethod
     def _generation_metadata(request: GenerationRequest) -> Dict[str, Any]:
         selected = request.selected_test_type or request.case_type
         recommended = request.recommended_test_type
@@ -532,7 +602,24 @@ class GenerationService:
         if run_log:
             run_log.artifact("04-model-raw-response.json", data)
         content = str(((data.get("message") or {}).get("content")) or "").strip()
-        parsed = json.loads(content)
+        metrics = {key:data.get(key) for key in ("done_reason", "eval_count", "prompt_eval_count")}
+        if run_log:
+            run_log.event("需求生成", "Direct响应统计", **metrics)
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            truncated = data.get("done_reason") == "length" or (
+                int(data.get("eval_count") or 0) >= self.settings.ollama_structured_num_predict
+            )
+            if truncated:
+                if run_log:
+                    run_log.event("需求生成", "Direct输出截断", classification="output_truncated", **metrics)
+                raise StructuredOutputError(
+                    "output_truncated：模型达到 num_predict 且JSON未闭合；相同参数不重试。"
+                    f" done_reason={data.get('done_reason')} eval_count={data.get('eval_count')} "
+                    f"prompt_eval_count={data.get('prompt_eval_count')} num_predict={self.settings.ollama_structured_num_predict}"
+                ) from exc
+            raise StructuredOutputError(f"invalid_complete_json：模型声明完成但JSON无效：{exc}") from exc
         try:
             bundle = GeneratedCaseBundle.model_validate(parsed)
             cases = bundle.cases
@@ -556,7 +643,7 @@ class GenerationService:
 
     @staticmethod
     def _validate_and_render_detailed_cases(
-        cases: List[TestCase], packages: List[Dict[str, Any]]
+        cases: List[TestCase], packages: List[Dict[str, Any]], case_type: str = "功能测试"
     ) -> List[TestCase]:
         valid_pages = {
             str(page.get("page_id") or "")
@@ -629,6 +716,12 @@ class GenerationService:
                         "element_name": element_name,
                         "element_type": step.element_type or evidence["element_type"],
                     })
+                if not valid_pages and step.action in {"click", "input", "select", "check"}:
+                    step = step.model_copy(update={
+                        "page_id":"", "page_name":"", "region":"", "element_id":"",
+                        "element_name":"", "element_type":"", "need_human_confirm":True,
+                    })
+                    case_needs_confirmation = True
                 if step.step_no != index:
                     raise StructuredOutputError(f"用例 {case.case_id} 步骤编号不连续")
                 if step.page_id and step.page_id not in valid_pages:
@@ -636,10 +729,15 @@ class GenerationService:
                 if step.element_id and step.element_id not in valid_elements:
                     raise StructuredOutputError(f"用例 {case.case_id} 使用未确认元素 {step.element_id}")
                 if step.action in {"click", "input", "select", "check"}:
-                    if not step.page_name and not step.region:
-                        raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少页面或区域")
-                    if not step.element_name or "〖" not in step.element_name or "〗" not in step.element_name:
-                        raise StructuredOutputError(f"用例 {case.case_id} 第{index}步控件名称未使用〖〗")
+                    if valid_pages:
+                        if not step.page_id or not step.page_name or not step.region:
+                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少已确认页面或真实区域")
+                        if not step.element_id or not evidence:
+                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少真实目录元素")
+                        if not evidence.get("region"):
+                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步真实元素缺少区域证据")
+                        if not step.element_name or "〖" not in step.element_name or "〗" not in step.element_name:
+                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步控件名称未使用〖〗")
                 if step.action in {"input", "select"} and not step.input_value:
                     raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少具体输入值")
                 result = step.expected_result
@@ -664,22 +762,27 @@ class GenerationService:
                 if any(word in observable for word in ("正常显示", "正确处理")):
                     raise StructuredOutputError(f"用例 {case.case_id} 第{index}步包含主观预期")
                 if step.action in {"click", "input", "select", "check"}:
-                    location = f"在〖{step.page_name}〗页面"
-                    if step.region:
-                        location += f"的{step.region}"
-                    action_text = {
-                        "click": f"点击{step.element_name}",
-                        "input": f"在{step.element_name}中输入“{step.input_value}”",
-                        "select": f"从{step.element_name}选择“{step.input_value}”",
-                        "check": f"勾选{step.element_name}",
-                    }[step.action]
-                    instruction = f"{location}，{action_text}。"
+                    if step.page_name and step.element_name:
+                        location = f"在〖{step.page_name}〗页面"
+                        if step.region:
+                            location += f"的{step.region}"
+                        action_text = {
+                            "click": f"点击{step.element_name}",
+                            "input": f"在{step.element_name}中输入“{step.input_value}”",
+                            "select": f"从{step.element_name}选择“{step.input_value}”",
+                            "check": f"勾选{step.element_name}",
+                        }[step.action]
+                        instruction = f"{location}，{action_text}。"
+                    else:
+                        instruction = step.instruction
                 else:
                     instruction = step.instruction
                 instructions.append(instruction)
                 expected.append(observable)
                 normalized_steps.append(step)
             missing = list(case.missing_information)
+            if case_needs_confirmation and not valid_pages:
+                missing.append("当前需求没有已确认HTML页面证据，未采用模型生成的页面、区域或元素，待人工确认")
             if case_needs_confirmation and "缺少可支持部分页面提示的需求或观测证据" not in missing:
                 missing.append("缺少可支持部分页面提示的需求或观测证据")
             rendered.append(case.model_copy(update={"structured_steps": normalized_steps, "test_steps": instructions, "expected_results": expected, "need_human_confirm": case_needs_confirmation, "missing_information": missing}))

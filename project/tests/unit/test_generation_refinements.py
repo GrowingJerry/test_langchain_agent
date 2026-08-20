@@ -10,6 +10,7 @@ from config.settings import Settings
 from domain.rules.evidence_policy import EvidencePolicy
 from domain.schemas.test_case import TestCase
 from infrastructure.llm.stream_guard import GenerationTerminated, StreamGuard
+from application.services.generation_package import estimate_generation_capacity
 from domain.rules.element_position import position_evidence
 
 
@@ -62,6 +63,11 @@ def test_internal_35b_configuration_changes_actual_context_values():
     assert settings.ollama_num_ctx == 131072
     assert settings.ollama_structured_num_predict == 32768
     assert settings.generation_context_token_budget == 90000
+
+def test_4669_token_large_case_request_is_blocked_at_2048_output_budget():
+    capacity=estimate_generation_capacity(input_tokens=4669,case_count=20,num_ctx=8192,num_predict=2048,settings=Settings())
+    assert capacity == {"input_tokens":4669,"expected_output_tokens":18350,
+                        "available_output_tokens":2048,"case_count":20,"capacity_sufficient":False}
 
 def test_position_phrase_comes_from_playwright_box():
     evidence=position_evidence({"x":1100,"y":20,"width":120,"height":40},{"width":1366,"height":768},"〖公告列表〗页面")

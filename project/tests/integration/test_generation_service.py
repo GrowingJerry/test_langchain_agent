@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tempfile
 from typing import Any, List
 
@@ -203,7 +204,7 @@ def test_auto_count_notes_and_stream_callback_reach_agent(workspace) -> None:
     events = []
     service = GenerationService(
         manager,
-        settings=enabled_settings(),
+        settings=enabled_settings(ollama_structured_num_predict=32768, ollama_num_ctx=65536),
         health_client=Health(),
         agent_builder=lambda runtime: StreamingFakeAgent(bundle),
     )
@@ -409,6 +410,68 @@ def test_agent_and_direct_share_generation_package_fingerprint(workspace) -> Non
     assert result.context_fingerprints == [captured["direct_packages"][0]["fingerprint"]]
     assert Path(result.diagnostic_log_path).is_file()
     assert Path(result.diagnostic_bundle_path).is_file()
+
+
+def test_capacity_preflight_blocks_large_8b_request_before_model_call(workspace) -> None:
+    manager, project_id, _ = workspace
+    called = []
+    service = GenerationService(
+        manager,
+        settings=enabled_settings(ollama_num_ctx=8192, ollama_structured_num_predict=2048),
+        health_client=Health(),
+        agent_builder=lambda runtime: called.append(True),
+    )
+
+    with pytest.raises(StructuredOutputError, match="generation_capacity_insufficient"):
+        service.generate_test_cases(request(project_id, case_count=20, auto_case_count=True))
+
+    assert called == []
+    assert manager.list_generated_cases(project_id) == []
+
+
+def test_auto_prefers_direct_when_generation_package_has_atomic_requirements(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    with manager.connections.transaction() as conn:
+        conn.execute(
+            "INSERT INTO requirement_indicators(project_id,indicator_id,capability_id,function_id,parent_indicator_id,indicator_text,indicator_type,source_json,rules_json,verification_scope,need_human_confirm) VALUES(?,?,?,?,?,?,?,?,?,?,0)",
+            (project_id, "ATOM-1", "REQ-1", "REQ-1", "", "接收订单", "normal", "{}", "{}", "offline_verifiable"),
+        )
+    service = GenerationService(
+        manager,
+        settings=enabled_settings(),
+        health_client=Health(),
+        agent_builder=lambda runtime: (_ for _ in ()).throw(AssertionError("Agent must not run")),
+        direct_model_generator=direct_case_generator(chunk_id),
+    )
+
+    result = service.generate_test_cases(request(project_id))
+
+    assert result.generation_mode == "model_direct"
+    assert result.agent_failure == ""
+    assert result.agent_direct_context_equal is True
+
+
+def test_direct_length_response_is_classified_output_truncated_without_retry(workspace, monkeypatch) -> None:
+    manager, project_id, _ = workspace
+    calls = []
+
+    class Response:
+        ok = True
+        status_code = 200
+        def iter_lines(self, decode_unicode=True):
+            yield json.dumps({"message":{"content":"{"}, "done":True, "done_reason":"length", "eval_count":2048, "prompt_eval_count":4669})
+        def close(self): pass
+
+    monkeypatch.setattr("application.services.generation_service.requests.post", lambda *a, **k: calls.append(k) or Response())
+    service = GenerationService(manager, settings=enabled_settings(), health_client=Health())
+
+    with pytest.raises(StructuredOutputError, match="output_truncated"):
+        service._generate_with_direct_model(
+            [{"package":{"requirement":{"requirement_id":"REQ-1"}}, "fingerprint":"FP"}],
+            request(project_id), "forced", progress_callback=lambda event: None,
+        )
+
+    assert len(calls) == 1
 
 
 def test_direct_model_repairs_unpaired_step_result_without_rule_fallback(workspace) -> None:

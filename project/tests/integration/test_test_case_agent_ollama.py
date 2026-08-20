@@ -119,7 +119,7 @@ def test_agent_with_local_ollama() -> None:
             assert direct_result.agent_direct_context_equal is True
             assert direct_result.context_fingerprints
             assert direct_result.cases
-            assert any(event.get("kind")=="error" and "Agent" in event.get("content","") for event in stream_events)
+            assert any(event.get("kind")=="status" and "Auto路由" in event.get("content","") for event in stream_events)
             assert any(event.get("kind")=="token" and event.get("content") for event in stream_events)
             assert any("正在执行结构校验" in event.get("content","") for event in stream_events)
             assert all(item.case.structured_steps for item in direct_result.cases)
