@@ -3,6 +3,9 @@ from __future__ import annotations
 import json, time
 from uuid import uuid4
 import requests
+from infrastructure.llm.ollama_errors import NonRetryableSchemaError, raise_for_ollama_status, response_error_text
+import logging
+logger=logging.getLogger("test_agent.case_regeneration")
 from application.services.traceability_service import enforce_online_confirmation, validate_step_alignment
 from infrastructure.repositories.traceability_repository import TraceabilityRepository
 
@@ -31,7 +34,8 @@ class CaseRegenerationService:
         for attempt in range(self.settings.ollama_max_retries+1):
             try:
                 response=self.session.post(self.settings.ollama_base_url.rstrip("/")+"/api/chat",json={"model":self.settings.ollama_model,"stream":False,"think":False,"format":schema,"messages":[{"role":"user","content":prompt+correction}],"options":{"temperature":0,"num_ctx":self.settings.ollama_num_ctx,"num_predict":self.settings.ollama_structured_num_predict}},timeout=self.settings.ollama_timeout)
-                response.raise_for_status(); revised=json.loads(response.json()["message"]["content"])
+                if not response.ok: logger.error("Case regeneration Ollama HTTP %s response=%s",response.status_code,response_error_text(response))
+                raise_for_ollama_status(response); revised=json.loads(response.json()["message"]["content"])
                 revised["steps"]=revised.get("steps") or revised.pop("test_steps",[]) or original.get("steps") or original.get("test_steps") or []
                 revised["expected"]=revised.get("expected") or revised.pop("expected_results",revised.pop("expected_result",[])) or original.get("expected") or original.get("expected_results") or []
                 if original.get("need_human_confirm") or "联机" in json.dumps(original,ensure_ascii=False):
@@ -40,6 +44,7 @@ class CaseRegenerationService:
                 validate_step_alignment(revised)
                 if not revised["steps"] or not revised["expected"] or ("联机" in feedback and "联机" not in json.dumps(revised["expected"],ensure_ascii=False)): raise ValueError("模型输出未满足反馈或非空步骤约束")
                 break
+            except NonRetryableSchemaError: raise
             except (requests.RequestException,KeyError,TypeError,ValueError,json.JSONDecodeError) as exc:
                 last_error=f"{type(exc).__name__}: {exc}"
                 correction="\n上次输出未通过校验："+last_error+f"。必须输出恰好{step_count}条非空steps和{step_count}条非空expected；expected必须明确包含“待联机验证”。请重新输出完整JSON。"

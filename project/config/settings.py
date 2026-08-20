@@ -110,6 +110,8 @@ class Settings(BaseModel):
     binding_max_element_ids: int = Field(default=10, ge=1, le=1000)
     binding_model_num_predict: int = Field(default=2000, ge=128, le=65536)
     binding_model_timeout: int = Field(default=120, ge=1, le=3600)
+    binding_reason_max_chars: int = Field(default=500, ge=50, le=4000)
+    audit_reason_max_chars: int = Field(default=1000, ge=50, le=4000)
     general_extraction_block_chars: int = Field(default=12000, ge=1000, le=200000)
     general_extraction_group_chars: int = Field(default=24000, ge=1000, le=500000)
     general_extraction_num_predict: int = Field(default=4096, ge=256, le=65536)

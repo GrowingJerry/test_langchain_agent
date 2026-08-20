@@ -8,17 +8,27 @@ import requests
 from config.settings import Settings
 from infrastructure.database.json_codec import loads_json,dumps_json
 from infrastructure.llm.visual_client import OllamaVisualClient
+from infrastructure.llm.ollama_errors import NonRetryableSchemaError, raise_for_ollama_status, response_error_text
 
 logger=logging.getLogger("test_agent.semantic_binding")
+
+def semantic_binding_schema(settings:Settings)->dict[str,Any]:
+    """Production schema kept grammar-safe for Ollama; text bounds are enforced in Python."""
+    return {"type":"object","required":["page_id","confidence","reason","element_ids","need_human_confirm"],"properties":{"page_id":{"type":"string"},"confidence":{"type":"number"},"reason":{"type":"string"},"element_ids":{"type":"array","maxItems":settings.binding_max_element_ids,"items":{"type":"string"}},"need_human_confirm":{"type":"boolean"}}}
 
 def _semantic_chat(settings:Settings,schema:dict[str,Any],payload:dict[str,Any])->dict[str,Any]:
     last=None
     for attempt in range(settings.ollama_max_retries+1):
         try:
             response=requests.post(settings.ollama_base_url.rstrip("/")+"/api/chat",json={"model":settings.text_model,"stream":False,"think":False,"format":schema,"messages":[{"role":"user","content":"依据需求语义、简化DOM和真实观测选择页面及元素。关键词仅是候选，不得编造ID。只输出完整JSON。\n"+json.dumps(payload,ensure_ascii=False)}],"options":{"temperature":settings.ollama_temperature,"num_predict":settings.binding_model_num_predict,"num_ctx":settings.ollama_num_ctx}},timeout=settings.binding_model_timeout)
-            response.raise_for_status(); decision=json.loads(response.json()["message"]["content"])
+            if not response.ok: logger.error("Semantic binding Ollama HTTP %s response=%s",response.status_code,response_error_text(response))
+            raise_for_ollama_status(response); decision=json.loads(response.json()["message"]["content"])
             if not isinstance(decision,dict) or not all(key in decision for key in ("page_id","confidence","reason","element_ids","need_human_confirm")): raise ValueError("semantic binding JSON is incomplete")
+            decision["reason"]=str(decision.get("reason") or "").strip()[:settings.binding_reason_max_chars]
             return decision
+        except NonRetryableSchemaError:
+            logger.exception("Semantic binding stopped: non_retryable_schema_error")
+            raise
         except Exception as exc:
             last=exc; logger.exception("Semantic binding model attempt %s failed",attempt+1)
     raise RuntimeError(f"Semantic binding failed after limited retries: {type(last).__name__}: {last}")
@@ -51,7 +61,7 @@ def bind_project(manager,project_id:str,settings:Settings)->dict[str,Any]:
                 summary=summaries.get(page['page_id'],{}); page_text=" ".join([page.get("title") or "",page.get("page_path") or "",str(summary.get('visible_text_summary') or '')[:4000],json.dumps(controls,ensure_ascii=False)])
                 hits=sorted(req_tokens&_tokens(page_text)); score=len(hits)/max(1,len(req_tokens)); candidates.append({"page_id":page["page_id"],"title":page.get("title"),"path":page.get("page_path"),"visible_text_summary":str(summary.get('visible_text_summary') or '')[:2000],"score":score,"hits":hits,"controls":controls})
             candidates.sort(key=lambda x:x["score"],reverse=True); compact=[{k:v for k,v in x.items() if k!="controls"} for x in candidates[:settings.binding_max_candidate_pages]]
-            schema={"type":"object","required":["page_id","confidence","reason","element_ids","need_human_confirm"],"properties":{"page_id":{"type":"string"},"confidence":{"type":"number"},"reason":{"type":"string","maxLength":settings.generation_max_field_chars},"element_ids":{"type":"array","maxItems":settings.binding_max_element_ids,"items":{"type":"string"}},"need_human_confirm":{"type":"boolean"}}}
+            schema=semantic_binding_schema(settings)
             payload={"requirement":{"function_id":node["identifier"],"hierarchy":loads_json(node.get("hierarchy_path_json"),[]),"sections":sections},"candidate_pages":candidates[:settings.binding_max_candidate_pages],"playwright_observation":observation_text[:settings.playwright_max_observation_text_chars]}
             try: decision=_semantic_chat(settings,schema,payload)
             except Exception as exc:

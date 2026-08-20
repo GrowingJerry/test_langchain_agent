@@ -34,6 +34,9 @@ from application.services.fallback_generation_service import FallbackGenerationS
 from application.services.generation_package import build_generation_package
 from infrastructure.runtime.generation_run_log import GenerationRunLog
 from infrastructure.llm.stream_guard import StreamGuard, GenerationTerminated
+from infrastructure.llm.ollama_errors import raise_for_ollama_status, response_error_text
+import logging
+logger = logging.getLogger("test_agent.generation")
 from application.services.case_id_service import CaseIdService
 
 
@@ -494,7 +497,9 @@ class GenerationService:
             timeout=self.settings.ollama_timeout,
             stream=bool(progress_callback),
         )
-        response.raise_for_status()
+        if not response.ok:
+            logger.error("Generation Ollama HTTP %s response=%s", response.status_code, response_error_text(response))
+        raise_for_ollama_status(response)
         if progress_callback:
             data: Dict[str, Any] = {}
             content_parts: List[str] = []
