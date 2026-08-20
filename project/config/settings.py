@@ -83,6 +83,8 @@ class Settings(BaseModel):
     generation_max_same_char_run: int = Field(default=24, ge=4, le=1000)
     generation_max_digit_run: int = Field(default=32, ge=4, le=2000)
     generation_json_progress_timeout_seconds: int = Field(default=90, ge=5, le=1800)
+    generation_ui_poll_interval_ms: int = Field(default=500, ge=200, le=5000)
+    generation_ui_stream_display_chars: int = Field(default=6000, ge=500, le=50000)
     html_max_total_elements: int = Field(default=5000, ge=100, le=100000)
     html_max_elements_per_page: int = Field(default=100, ge=10, le=10000)
     html_max_candidate_pages: int = Field(default=5, ge=1, le=100)

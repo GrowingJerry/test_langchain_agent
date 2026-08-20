@@ -161,7 +161,7 @@ class GenerationService:
             requirement_name=str((requirement or {}).get("title") or ""), test_type=request.case_type,
             generation_mode=request.requested_mode, model=self.settings.test_case_model)
         started = time.monotonic()
-        self._emit(progress_callback, "status", "正在读取需求、场景和项目知识…")
+        self._emit(progress_callback, "status", "正在构建GenerationPackage")
         contexts = self._build_contexts(request)
         packages = [
             build_generation_package(
@@ -246,6 +246,7 @@ class GenerationService:
                         agent_kwargs["generation_package"] = packages[0]["package"]
                     run_log.artifact("03-model-request.json", {"mode": "agent", "fingerprints": fingerprints, "packages": packages})
                     run_log.event("需求生成", "调用 Agent：开始", mode="agent", fingerprint=fingerprints[0] if fingerprints else "")
+                    self._emit(progress_callback,"status","正在调用Agent")
                     bundle = agent.generate(agent_request, **agent_kwargs)
                     bundle = (
                         bundle
@@ -307,6 +308,7 @@ class GenerationService:
             if any(len(step) > self.settings.generation_max_step_chars for step in case.test_steps):
                 raise StructuredOutputError("用例步骤超过 GENERATION_MAX_STEP_CHARS")
         if mode in ("agent", "model_direct"):
+            self._emit(progress_callback,"status","正在执行结构校验")
             canonical_cases = self._validate_and_render_detailed_cases(canonical_cases, packages)
         if cancellation_callback and cancellation_callback():
             run_log.finish("cancelled", failure_reason="client_cancelled")
@@ -316,7 +318,7 @@ class GenerationService:
             request.project_id, requirement_id, canonical_cases
         )
         metadata = self._generation_metadata(request)
-        self._emit(progress_callback, "status", "正在校验质量并保存测试用例…")
+        self._emit(progress_callback, "status", "正在持久化正式测试用例")
         run_id = self.manager.create_generation_run(
             project_id=request.project_id,
             run_type=f"test_case_{mode}",
@@ -331,6 +333,7 @@ class GenerationService:
         records = self._score_and_persist(
             request, contexts, canonical_cases, run_id, mode, fallback_reason, metadata
         )
+        self._emit(progress_callback,"status",f"生成完成，共持久化 {len(records)} 条用例")
         run_log.artifact("05-parsed-output.json", [record.persistence_data for record in records])
         run_log.artifact("06-validation-result.json", [record.quality for record in records])
         run_log.artifact("07-persistence-result.json", {"case_count": len(records), "generation_run_id": run_id})
@@ -506,7 +509,10 @@ class GenerationService:
             def events():
                 for line in response.iter_lines(decode_unicode=True):
                     if line:
-                        yield json.loads(line)
+                        event=json.loads(line)
+                        thinking=str(((event.get("message") or {}).get("thinking")) or "")
+                        if thinking: self._emit(progress_callback,"reasoning",thinking)
+                        yield event
             try:
                 data, content = StreamGuard(self.settings, cancellation_callback or (lambda: False)).collect(
                     events(), lambda part: self._emit(progress_callback, "token", part))

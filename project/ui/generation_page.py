@@ -17,6 +17,11 @@ from application.services.test_type_recommendation import (
 from application.services.ui_state import request_fingerprint
 from domain.rules.test_types import LABELS
 from application.services.generation_task_registry import submit_generation
+from application.services.generation_task_registry import GenerationTaskStore, request_cancel, TERMINAL
+from config.settings import settings as runtime_settings
+
+TASK_STORE=GenerationTaskStore(Path(__file__).resolve().parents[1]/"logs"/"generation-tasks")
+TASK_STORE.recover_interrupted()
 
 TEST_TYPES = ["功能测试", "性能测试", "接口测试", "异常测试", "安全性测试", "可靠性测试"]
 
@@ -30,6 +35,43 @@ TEST_TYPES = LABELS
 
 def _rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{key: _flat(value) for key, value in item.items()} for item in items]
+
+def _consume_task_events(task_id:str)->tuple[dict[str,Any],dict[str,str],list[str]]:
+    state=TASK_STORE.state(task_id); cursor_key=f"generation_event_cursor_{task_id}"; output_key=f"generation_stream_{task_id}"; progress_key=f"generation_progress_{task_id}"
+    cursor=int(st.session_state.get(cursor_key,0)); streams=st.session_state.setdefault(output_key,{"reasoning":"","token":"","status":""}); progress=st.session_state.setdefault(progress_key,[])
+    for event in TASK_STORE.events_after(task_id,cursor):
+        kind=event.get("kind"); content=str(event.get("content") or "")
+        if kind in streams: streams[kind]+=content if kind in {"reasoning","token"} else ("\n"+content)
+        if kind in {"progress","error"}: progress.append(content)
+        cursor=max(cursor,int(event.get("sequence") or 0))
+    st.session_state[cursor_key]=cursor
+    return state,streams,progress[-20:]
+
+def _render_task(task_id:str,allow_cancel:bool)->dict[str,Any]:
+    state,streams,progress=_consume_task_events(task_id); started=state.get("started_at")
+    elapsed=0.0
+    if started:
+        try: elapsed=max(0,time.time()-__import__('datetime').datetime.fromisoformat(started).timestamp())
+        except ValueError: pass
+    st.markdown(f"**当前需求：** {state.get('requirement_id') or '—'}　 **当前模型：** {state.get('model') or '—'}")
+    st.markdown(f"**运行模式：** {state.get('actual_mode') or state.get('requested_mode') or '—'}　 **已用时间：** {elapsed:.1f}秒　 **当前阶段：** {state.get('current_stage') or state.get('status')}")
+    total=max(int(state.get("total") or 1),1); completed=int(state.get("completed_requirements") or 0)
+    st.progress(min(completed/total,.99 if state.get("status") not in TERMINAL else 1.0),text=f"批量进度 {completed}/{total}")
+    if progress:
+        st.caption("\n".join(progress))
+    with st.expander("模型生成过程",expanded=state.get("status") not in TERMINAL):
+        limit=runtime_settings.generation_ui_stream_display_chars
+        st.caption("思考过程"); st.code(streams.get("reasoning","")[-limit:] or "等待模型思考输出…",language=None)
+        st.caption("正在输出"); st.code(streams.get("token","")[-limit:] or "等待模型正文输出…",language=None)
+    if allow_cancel and state.get("status") in {"created","running"}:
+        if st.button("停止本次生成",type="secondary",key=f"cancel_generation_{task_id}"):
+            request_cancel(TASK_STORE,task_id); st.warning("停止请求已发送，正在关闭当前模型流。")
+    return state
+
+@st.fragment(run_every=f"{runtime_settings.generation_ui_poll_interval_ms}ms")
+def _poll_task(task_id:str)->None:
+    state=_render_task(task_id,True)
+    if state.get("status") in TERMINAL: st.rerun()
 
 
 def _requirement_preview_rows(requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -485,8 +527,11 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
             "项目生成上下文": preview_context,
         }
     task_key=f"generation_task_{project_id}"
+    task_id=st.session_state.get(task_key) or TASK_STORE.latest_for_project(project_id)
+    task_state=TASK_STORE.state(task_id) if task_id else {}
+    if task_id: st.session_state[task_key]=task_id
     if generate_col.button("按需求生成测试用例", type="primary", key=f"generate_{project_id}",
-                           disabled=bool(st.session_state.get(task_key) and not st.session_state[task_key].future.done())):
+                           disabled=task_state.get("status") in {"created","running","cancel_requested"}):
         request_data = {
             "project_id": project_id, "requirement_ids": selected_ids,
             "case_type": case_type, "count": int(count), "mode": mode,
@@ -506,30 +551,40 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
                     test_type_confidence=float(recommendation.get("recommendation_confidence") or 0),
                     test_type_reasons=list(recommendation.get("recommendation_reasons") or []),
                     additional_instructions=manual_note.strip())
-            def run_background(cancelled):
+            def run_background(cancelled,emit):
+                stream_probe={"text":"","case_count":0}
+                def relay(event):
+                    kind=str(event.get("kind") or "status"); mapped="progress" if kind in {"batch","progress"} else kind
+                    content=str(event.get("content") or "")
+                    emit(mapped,content,index=event.get("index"),total=event.get("total"),requirement_id=event.get("requirement_id"))
+                    if mapped=="token":
+                        stream_probe["text"]=(stream_probe["text"]+content)[-20000:]
+                        detected=stream_probe["text"].count('"case_id"')
+                        if detected>stream_probe["case_count"]:
+                            stream_probe["case_count"]=detected; emit("status",f"正在输出第{detected}条用例")
                 return service.generate_requirement_batch(generation_request, selected_ids, batch_id,
-                    progress_callback=None, force=force_regenerate, cancellation_callback=cancelled)
-            st.session_state[task_key]=submit_generation(run_background, selected_ids[0],
-                service.settings.test_case_model, mode)
+                    progress_callback=relay, force=force_regenerate, cancellation_callback=cancelled)
+            st.session_state[task_key]=submit_generation(TASK_STORE,run_background,project_id=project_id,
+                requirement_id=selected_ids[0],model=service.settings.test_case_model,mode=mode,total=len(selected_ids))
             st.rerun()
         except Exception as exc:
             st.error(f"批量生成启动失败：{type(exc).__name__}: {exc}")
-    task=st.session_state.get(task_key)
-    if task:
-        if task.future.done():
-            try:
-                batch_result=task.future.result()
-                st.session_state[f"requirement_result_{project_id}"]=batch_result
-                if batch_result.get("cancelled"): st.warning("本次生成已取消；不完整输出未持久化，可用相同上下文重新生成。")
-                elif batch_result.get("failed"): st.warning(f"批次结束：成功 {len(batch_result['completed'])}，失败 {len(batch_result['failed'])}。")
-                else: st.success(f"批次完成：新生成 {len(batch_result['completed'])} 条需求。")
-            except Exception as exc: st.error(f"后台生成失败：{type(exc).__name__}: {exc}")
-            st.session_state.pop(task_key,None)
+    task_id=st.session_state.get(task_key)
+    if task_id:
+        state=TASK_STORE.state(task_id)
+        if state.get("status") not in TERMINAL:
+            _poll_task(task_id)
         else:
-            st.info({"当前需求":task.requirement_id,"当前模型":task.model,"已用时间秒":round(time.monotonic()-task.started_at,1),
-                     "当前运行模式":task.mode,"状态":"running"})
-            if st.button("停止本次生成",type="secondary",key=f"cancel_generation_{project_id}"):
-                task.cancel(); st.warning("已发送停止信号；当前流式响应将关闭，部分输出只保留在诊断日志中。")
+            _render_task(task_id,False); batch_result=TASK_STORE.result(task_id)
+            if batch_result: st.session_state[f"requirement_result_{project_id}"]=batch_result
+            if state.get("status")=="completed":
+                st.success(f"生成完成｜需求：{state.get('requirement_id')}｜模式：{state.get('actual_mode')}｜生成用例：{state.get('generated_case_count')}条｜已持久化：{state.get('persisted_case_count')}条｜运行ID：{task_id}")
+            elif state.get("status")=="cancelled":
+                st.warning(f"生成已停止｜未完整结果未保存｜停止原因：{state.get('termination_reason')}｜日志：{state.get('log_path','')}")
+                if st.button("使用相同上下文重新生成",key=f"retry_generation_{task_id}"):
+                    st.session_state.pop(task_key,None); st.rerun()
+            else:
+                st.error(f"生成失败｜阶段：{state.get('current_stage')}｜原因：{state.get('failure_reason')}｜Agent→Direct：{state.get('agent_to_direct',False)}｜日志：{state.get('log_path','')}")
     if st.session_state.get(preview_state_key):
         with st.expander("生成上下文预览"):
             st.json(st.session_state[preview_state_key])

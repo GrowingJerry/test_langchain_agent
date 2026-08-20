@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import json
+import time
 
 import pytest
 
@@ -19,6 +20,7 @@ from application.services.generation_context import ContextBuilder
 from application.services.generation_package import build_generation_package
 from application.services.generation_service import GenerationRequest, GenerationService
 from domain.exceptions import AgentExecutionError
+from application.services.generation_task_registry import GenerationTaskStore,submit_generation,request_cancel
 
 
 pytestmark = [
@@ -83,11 +85,14 @@ def test_agent_with_local_ollama() -> None:
         )
         assert package["package"]["atomic_requirements"]
         assert package["package"]["page_evidence"][0]["elements"][0]["element_id"] == "EL-SUBMIT"
+        agent_events=[]
         result = TestCaseAgent(runtime).generate(
             TestCaseAgentRequest(requirement_ids=["REQ-1"], case_count=1),
             generation_package=package["package"],
+            progress_callback=lambda event: agent_events.append(event),
         )
         assert result.cases
+        assert agent_events
         assert result.cases[0].structured_steps
         assert result.cases[0].structured_steps[0].element_id in {"", "EL-SUBMIT"}
 
@@ -95,6 +100,7 @@ def test_agent_with_local_ollama() -> None:
             def generate(self, request, generation_package=None, progress_callback=None):
                 raise AgentExecutionError("forced acceptance failure")
 
+        stream_events=[]
         direct_result = GenerationService(
             manager,
             settings=settings.model_copy(update={"enable_agent": True}),
@@ -107,14 +113,36 @@ def test_agent_with_local_ollama() -> None:
             auto_case_count=True,
             requested_mode="auto",
             use_history=False,
-        ))
+        ), progress_callback=lambda event: stream_events.append(event))
         assert direct_result.generation_mode == "model_direct"
         assert direct_result.agent_direct_context_equal is True
         assert direct_result.context_fingerprints
         assert direct_result.cases
+        assert any(event.get("kind")=="error" and "Agent" in event.get("content","") for event in stream_events)
+        assert any(event.get("kind")=="token" and event.get("content") for event in stream_events)
+        assert any("正在执行结构校验" in event.get("content","") for event in stream_events)
         assert all(item.case.structured_steps for item in direct_result.cases)
         assert any(
             step.element_id == "EL-SUBMIT"
             for item in direct_result.cases
             for step in item.case.structured_steps
         )
+
+        before_cancel=len(manager.list_generated_cases(project_id)); task_store=GenerationTaskStore(root/"task-events")
+        def cancellable_work(cancelled,emit):
+            cancel_service=GenerationService(manager,settings=settings.model_copy(update={"enable_agent":True}),health_client=health,agent_builder=lambda runtime:ForcedFailureAgent())
+            result=cancel_service.generate_test_cases(GenerationRequest(project_id=project_id,requirement_ids=["REQ-1"],case_count=10,auto_case_count=True,requested_mode="auto",use_history=False),progress_callback=lambda event:emit(event.get("kind","status"),event.get("content","")),cancellation_callback=cancelled)
+            return {"cases":[x.model_dump(mode="json") for x in result.cases],"completed":["REQ-1"],"skipped":[],"failed":[],"diagnostic_runs":[{"generation_mode":result.generation_mode,"agent_failure":result.agent_failure,"diagnostic_log_path":result.diagnostic_log_path}]}
+        task_id=submit_generation(task_store,cancellable_work,project_id=project_id,requirement_id="REQ-1",model=settings.test_case_model,mode="auto",total=1)
+        deadline=time.time()+60
+        while time.time()<deadline and not any(x.get("kind")=="token" for x in task_store.events_after(task_id,0)):
+            if task_store.state(task_id).get("status") in {"completed","failed","cancelled"}: break
+            time.sleep(.05)
+        if task_store.state(task_id).get("status") not in {"completed","failed","cancelled"}:
+            assert request_cancel(task_store,task_id)
+        deadline=time.time()+30
+        while time.time()<deadline and task_store.state(task_id).get("status") not in {"completed","failed","cancelled"}: time.sleep(.05)
+        cancel_state=task_store.state(task_id)
+        assert cancel_state["status"]=="cancelled"
+        assert cancel_state["termination_reason"]=="client_cancelled"
+        assert len(manager.list_generated_cases(project_id))==before_cancel
