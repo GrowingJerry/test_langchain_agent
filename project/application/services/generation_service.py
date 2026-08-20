@@ -244,6 +244,8 @@ class GenerationService:
                         agent_kwargs["progress_callback"] = progress_callback
                     if "generation_package" in generate_parameters:
                         agent_kwargs["generation_package"] = packages[0]["package"]
+                    if "request_run_id" in generate_parameters:
+                        agent_kwargs["request_run_id"] = run_log.run_id
                     run_log.artifact("03-model-request.json", {"mode": "agent", "fingerprints": fingerprints, "packages": packages})
                     run_log.event("需求生成", "调用 Agent：开始", mode="agent", fingerprint=fingerprints[0] if fingerprints else "")
                     self._emit(progress_callback,"status","正在调用Agent")
@@ -474,7 +476,8 @@ class GenerationService:
     @staticmethod
     def _emit(callback: Callable[[dict[str, str]], None] | None, kind: str, content: str) -> None:
         if callback is not None:
-            callback({"kind": kind, "content": content})
+            try: callback({"kind": kind, "content": content})
+            except Exception: logger.exception("task_state_persistence_error: progress callback failed kind=%s",kind)
 
     def _generate_with_direct_model(
         self,

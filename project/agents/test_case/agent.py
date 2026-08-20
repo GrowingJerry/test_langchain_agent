@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable, List, Optional
 
 from langchain.agents import create_agent
@@ -16,6 +17,7 @@ from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededE
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from pydantic import ValidationError
+logger=logging.getLogger("test_agent.agent")
 
 from agents.test_case.context import AgentRuntimeContext
 from agents.test_case.output_schema import GeneratedCaseBundle, TestCaseAgentRequest
@@ -100,6 +102,7 @@ class TestCaseAgent:
         request: TestCaseAgentRequest,
         progress_callback: Callable[[dict[str, str]], None] | None = None,
         generation_package: dict[str, Any] | None = None,
+        request_run_id: str = "",
     ) -> GeneratedCaseBundle:
         """Run one finite Agent invocation; callers own deterministic fallback behavior."""
         self.runtime.reset_observations()
@@ -137,7 +140,10 @@ class TestCaseAgent:
                     )
                 }
             graph = self.package_graph if generation_package is not None else self.graph
-            if progress_callback is None:
+            if generation_package is not None:
+                if progress_callback: progress_callback({"kind":"status","content":"正在等待Agent结构化结果（ProviderStrategy非流式）"})
+                state = graph.invoke(graph_input, config=graph_config)
+            elif progress_callback is None:
                 state = graph.invoke(graph_input, config=graph_config)
             else:
                 state = self._stream_graph(graph, graph_input, graph_config, progress_callback)
@@ -155,9 +161,14 @@ class TestCaseAgent:
                     "Test-case Agent recursion limit exceeded after tools "
                     f"{self.runtime.used_tool_names}: {exc}"
                 ) from exc
-            raise AgentExecutionError(
-                f"Test-case Agent execution failed: {exc!r}"
-            ) from exc
+            diagnostics={"exception_type":type(exc).__name__,"exception_repr":repr(exc),
+                "error":getattr(exc,"error",None),"status_code":getattr(exc,"status_code",None),
+                "cause":repr(exc.__cause__) if exc.__cause__ else "","model":self.runtime.settings.test_case_model,
+                "num_ctx":self.runtime.settings.ollama_num_ctx,"num_predict":self.runtime.settings.ollama_structured_num_predict,
+                "agent_strategy":"ProviderStrategy(non-streaming)" if generation_package is not None else "ToolStrategy",
+                "request_run_id":request_run_id,"docker_log_hint":"请按对应时间查看Docker Ollama日志"}
+            logger.exception("Test-case Agent execution failed diagnostics=%s",json.dumps(diagnostics,ensure_ascii=False,default=str))
+            raise AgentExecutionError("Test-case Agent execution failed: "+json.dumps(diagnostics,ensure_ascii=False,default=str)) from exc
 
         structured = (
             state.get("structured_response") if isinstance(state, dict) else None

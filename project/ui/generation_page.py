@@ -579,6 +579,8 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
             if batch_result: st.session_state[f"requirement_result_{project_id}"]=batch_result
             if state.get("status")=="completed":
                 st.success(f"生成完成｜需求：{state.get('requirement_id')}｜模式：{state.get('actual_mode')}｜生成用例：{state.get('generated_case_count')}条｜已持久化：{state.get('persisted_case_count')}条｜运行ID：{task_id}")
+                if state.get("process_log_incomplete"):
+                    st.warning("生成成功，但部分过程日志保存失败；正式用例已正常持久化，请查看 app.log 和本次 run.log。")
             elif state.get("status")=="cancelled":
                 st.warning(f"生成已停止｜未完整结果未保存｜停止原因：{state.get('termination_reason')}｜日志：{state.get('log_path','')}")
                 if st.button("使用相同上下文重新生成",key=f"retry_generation_{task_id}"):

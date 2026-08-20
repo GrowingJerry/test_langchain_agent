@@ -363,6 +363,25 @@ def test_agent_tool_failure_uses_direct_model_before_rule_fallback(workspace) ->
     assert "tool failed" in result.warnings[0]
 
 
+def test_progress_persistence_failure_does_not_kill_direct_or_formal_persistence(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+
+    def broken_task_state_callback(event):
+        raise PermissionError(5, "state write denied")
+
+    result = GenerationService(
+        manager,
+        settings=enabled_settings(),
+        health_client=Health(),
+        agent_builder=lambda runtime: FakeAgent(error=AgentExecutionError("agent unavailable")),
+        direct_model_generator=direct_case_generator(chunk_id),
+    ).generate_test_cases(request(project_id), progress_callback=broken_task_state_callback)
+
+    assert result.generation_mode == "model_direct"
+    assert result.cases
+    assert manager.list_generated_cases(project_id)
+
+
 def test_agent_and_direct_share_generation_package_fingerprint(workspace) -> None:
     manager, project_id, chunk_id = workspace
     captured: dict[str, Any] = {}

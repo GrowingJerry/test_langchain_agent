@@ -167,6 +167,27 @@ def runtime(
         retriever=FakeRetriever("P1"),
     )
 
+def test_provider_strategy_package_uses_non_streaming_invoke():
+    agent=TestCaseAgent.__new__(TestCaseAgent); agent.runtime=runtime()
+    class Graph:
+        def invoke(self,*args,**kwargs): return {'structured_response':bundle_payload()}
+        def stream(self,*args,**kwargs): raise AssertionError('ProviderStrategy must remain non-streaming')
+    agent.package_graph=Graph(); agent.graph=Graph(); events=[]
+    result=agent.generate(TestCaseAgentRequest(requirement_ids=['REQ-1'],case_count=1),generation_package={'requirement':{}},progress_callback=events.append,request_run_id='RUN-X')
+    assert result.cases and any('非流式' in event['content'] for event in events)
+
+def test_agent_response_error_diagnostics_include_ollama_fields():
+    agent=TestCaseAgent.__new__(TestCaseAgent); agent.runtime=runtime(ollama_num_ctx=8192,ollama_structured_num_predict=2048)
+    class ResponseError(Exception):
+        error='docker detail'; status_code=500
+    class Graph:
+        def invoke(self,*args,**kwargs): raise ResponseError('')
+    agent.package_graph=Graph(); agent.graph=Graph()
+    with pytest.raises(AgentExecutionError) as caught:
+        agent.generate(TestCaseAgentRequest(requirement_ids=['REQ-1'],case_count=1),generation_package={'requirement':{}},request_run_id='RUN-DIAG')
+    message=str(caught.value)
+    assert 'ResponseError' in message and 'docker detail' in message and '500' in message and 'RUN-DIAG' in message and 'ProviderStrategy(non-streaming)' in message
+
 
 def test_agent_selects_retrieval_tool_and_validates_output() -> None:
     model = ToolCallingFakeModel(
