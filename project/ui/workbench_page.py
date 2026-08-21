@@ -53,7 +53,7 @@ def render_workbench_page(service, project_id: Optional[str]) -> None:
         (f"最低功能节点：{workflow['lowest_function_count']}",workflow["lowest_function_count"]>0),(f"功能描述原子项：{workflow['atom_count']}",workflow["atom_count"]>0),("功能描述拆分审核通过",workflow["atom_review_passed"]),
         ("HTML站点已上传",workflow["html_uploaded"]),(f"HTML页面：{workflow['page_count']}",workflow["page_count"]>0),(f"Playwright：{workflow['playwright']['status']}",workflow["playwright"]["available"]),
         ("自动探索完成",workflow["exploration_completed"]),(f"需求—页面绑定：{workflow['binding_completion']:.0%}",workflow["binding_completion"]>=1),(f"待人工确认：{workflow['pending_confirmation']}",workflow["pending_confirmation"]==0),
-        (f"已生成用例：{workflow['case_count']}",workflow["case_count"]>0),(f"原子功能覆盖率：{workflow['atomic_coverage_rate']:.0%}",workflow["atomic_coverage_rate"]>=1),(f"待联机验证：{workflow['online_required']}",True),
+        (f"已生成用例：{workflow['case_count']}",workflow["case_count"]>0),(f"已确认覆盖率：{workflow['atomic_coverage_rate']:.0%}",workflow["atomic_coverage_rate"]>=1),(f"计划覆盖率（含待审核）：{workflow.get('planned_atomic_coverage_rate',workflow['atomic_coverage_rate']):.0%}",True),(f"待联机验证：{workflow['online_required']}",True),
         ("已审查",workflow["reviewed"]),("已导出",workflow["exported"]),
     ]
     st.subheader("流程状态")

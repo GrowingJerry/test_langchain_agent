@@ -563,12 +563,21 @@ def _requirement_mode(service: Any, project_id: str, case_library: Any, config: 
             progress.progress(1.0, text=f"批量进度 {completed_count}/{len(selected_ids)}")
             if batch_result.get("failed"):
                 first_error = batch_result["failed"][0].get("error", "未知错误")
-                st.error(f"批次生成失败：{first_error}")
+                if batch_result.get("cases"):
+                    st.warning(
+                        f"批次部分完成：可用 {batch_result.get('valid_case_count',0)} 条，"
+                        f"待审核 {batch_result.get('review_case_count',0)} 条，"
+                        f"硬拒绝 {batch_result.get('rejected_case_count',0)} 条；部分需求失败：{first_error}"
+                    )
+                else:
+                    st.error(f"批次生成失败：{first_error}")
             else:
                 st.success(
-                    f"生成完成：新生成 {len(batch_result.get('completed') or [])} 条需求，"
-                    f"断点跳过 {len(batch_result.get('skipped') or [])} 条，"
-                    f"共返回 {len(batch_result.get('cases') or [])} 条用例，耗时 {time.monotonic()-started:.1f} 秒。"
+                    f"生成完成：需求 {len(batch_result.get('completed') or [])} 项，"
+                    f"可用 {batch_result.get('valid_case_count',0)} 条，"
+                    f"待审核 {batch_result.get('review_case_count',0)} 条，"
+                    f"硬拒绝 {batch_result.get('rejected_case_count',0)} 条，"
+                    f"耗时 {time.monotonic()-started:.1f} 秒。"
                 )
         except Exception as exc:
             logger.exception("synchronous generation failed project_id=%s", project_id)

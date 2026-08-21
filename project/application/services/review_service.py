@@ -97,4 +97,8 @@ class ReviewService:
     ) -> None:
         payload = dict(updated_case)
         payload["case_id"] = case_id
+        if payload.get("need_human_confirm") or payload.get("need_human_confirmation"):
+            payload["review_status"] = "draft_needs_review"
+        else:
+            payload["review_status"] = "accepted"
         self.manager.save_generated_case(project_id, payload, generation_run_id, None)

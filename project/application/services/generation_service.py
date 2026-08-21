@@ -100,6 +100,7 @@ class GeneratedCaseRecord(BaseModel):
     persistence_data: Dict[str, Any]
     quality: Dict[str, Any]
     context_id: str = ""
+    review_status: str = "ready"
 
 
 class GenerationResult(BaseModel):
@@ -122,6 +123,10 @@ class GenerationResult(BaseModel):
     context_fingerprints: List[str] = Field(default_factory=list)
     agent_failure: str = ""
     agent_direct_context_equal: bool | None = None
+    valid_case_count: int = 0
+    review_case_count: int = 0
+    rejected_case_count: int = 0
+    rejected_cases: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 AgentBuilder = Callable[[AgentRuntimeContext], Any]
@@ -348,16 +353,21 @@ class GenerationService:
             raise StructuredOutputError("Generation produced no test cases")
         if len(canonical_cases) > min(request.case_count, self.settings.generation_max_cases_per_requirement):
             raise StructuredOutputError("模型返回用例数超过本次请求或 GENERATION_MAX_CASES_PER_REQUIREMENT")
-        for case in canonical_cases:
-            payload = case.model_dump(mode="json")
-            for field_name, value in payload.items():
-                if isinstance(value, str) and len(value) > self.settings.generation_max_field_chars:
-                    raise StructuredOutputError(f"用例字段 {field_name} 超过 GENERATION_MAX_FIELD_CHARS")
-            if any(len(step) > self.settings.generation_max_step_chars for step in case.test_steps):
-                raise StructuredOutputError("用例步骤超过 GENERATION_MAX_STEP_CHARS")
+        rejected_cases: List[Dict[str, Any]] = []
         if mode in ("agent", "model_direct"):
             self._emit(progress_callback,"status","正在执行结构校验")
-            canonical_cases = self._validate_and_render_detailed_cases(canonical_cases, packages, request.case_type)
+            canonical_cases, rejected_cases = self._validate_generated_cases(
+                canonical_cases, packages, request
+            )
+            run_log.artifact("05-hard-rejected-cases.json", rejected_cases)
+        else:
+            canonical_cases, rejected_cases = self._validate_generated_cases(
+                canonical_cases, packages, request, render_structured=False
+            )
+        if not canonical_cases:
+            reasons = "；".join(str(item.get("reason") or "") for item in rejected_cases[:5])
+            run_log.finish("failed", error="all_generated_cases_hard_rejected", rejected_cases=rejected_cases)
+            raise StructuredOutputError(f"全部候选用例均为hard_error，未持久化：{reasons}")
         if cancellation_callback and cancellation_callback():
             run_log.finish("cancelled", failure_reason="client_cancelled")
             raise StructuredOutputError("生成已由用户取消；不保存未完成用例")
@@ -385,7 +395,10 @@ class GenerationService:
         run_log.artifact("05-parsed-output.json", [record.persistence_data for record in records])
         run_log.artifact("06-validation-result.json", [record.quality for record in records])
         run_log.artifact("07-persistence-result.json", {"case_count": len(records), "generation_run_id": run_id})
-        run_log.finish("completed", generation_mode=mode, case_count=len(records),
+        valid_count=sum(record.review_status == "ready" for record in records)
+        review_count=sum(record.review_status == "draft_needs_review" for record in records)
+        run_log.finish("completed", generation_mode=mode, case_count=len(records), valid_case_count=valid_count,
+                       review_case_count=review_count, rejected_case_count=len(rejected_cases),
                        case_ids=[record.case.case_id for record in records],
                        elapsed_seconds=round(time.monotonic()-started, 3), fingerprints=fingerprints)
         diagnostic_bundle = run_log.diagnostic_zip()
@@ -413,6 +426,10 @@ class GenerationService:
             context_fingerprints=fingerprints,
             agent_failure=agent_failure,
             agent_direct_context_equal=agent_direct_context_equal,
+            valid_case_count=valid_count,
+            review_case_count=review_count,
+            rejected_case_count=len(rejected_cases),
+            rejected_cases=rejected_cases,
         )
 
     def _validate_scope(self, request: GenerationRequest) -> None:
@@ -625,6 +642,81 @@ class GenerationService:
         self._validate_agent_cases(repaired_cases, request)
         return repaired_cases
 
+    def _validate_generated_cases(
+        self, cases: List[TestCase], packages: List[Dict[str, Any]], request: GenerationRequest,
+        *, render_structured: bool = True,
+    ) -> tuple[List[TestCase], List[Dict[str, Any]]]:
+        """Validate candidates independently; only hard errors reject a case."""
+        accepted: List[TestCase] = []
+        rejected: List[Dict[str, Any]] = []
+        allowed_requirements = set(request.requirement_ids)
+        for index, original in enumerate(cases, 1):
+            label = f"候选用例{index}《{original.title}》"
+            try:
+                if not set(original.requirement_ids).issubset(allowed_requirements):
+                    raise StructuredOutputError("requirement_id不属于当前请求")
+                payload = original.model_dump(mode="json")
+                for field_name, value in payload.items():
+                    if isinstance(value, str) and len(value) > self.settings.generation_max_field_chars:
+                        raise StructuredOutputError(f"字段{field_name}超过GENERATION_MAX_FIELD_CHARS")
+                if any(len(step) > self.settings.generation_max_step_chars for step in original.test_steps):
+                    raise StructuredOutputError("步骤超过GENERATION_MAX_STEP_CHARS")
+                if not original.test_steps or not original.expected_results:
+                    raise StructuredOutputError("步骤与预期完全无法配对")
+                issues = list(original.quality_issues)
+                case = original
+                if len(case.test_steps) != len(case.expected_results):
+                    pair_count = min(len(case.test_steps), len(case.expected_results))
+                    if pair_count <= 0:
+                        raise StructuredOutputError("步骤与预期完全无法配对")
+                    case = self._repair_step_result_alignment(case)
+                    issues.append(self._quality_issue("step_result_alignment_repaired", "步骤与预期数量不一致，已保留可配对部分", "review_required"))
+                if render_structured:
+                    case = self._validate_and_render_detailed_cases([case], packages, request.case_type)[0]
+                issues = list(dict.fromkeys(json.dumps(item,ensure_ascii=False,sort_keys=True) for item in [*issues,*case.quality_issues]))
+                normalized_issues = [json.loads(item) for item in issues]
+                review = bool(case.need_human_confirm or any(
+                    item.get("severity") == "review_required" for item in normalized_issues
+                ))
+                accepted.append(case.model_copy(update={
+                    "quality_issues": normalized_issues,
+                    "review_status": "draft_needs_review" if review else "ready",
+                    "need_human_confirm": review,
+                }))
+            except (StructuredOutputError, ValidationError, ValueError, TypeError) as exc:
+                rejected.append({
+                    "candidate_index": index, "candidate_label": label,
+                    "severity": "hard_error", "reason": str(exc),
+                    "raw_case": original.model_dump(mode="json"),
+                })
+        return accepted, rejected
+
+    @staticmethod
+    def _quality_issue(code: str, message: str, severity: str = "review_required", **details: Any) -> Dict[str, Any]:
+        return {"code":code, "severity":severity, "message":message, **details}
+
+    @staticmethod
+    def _concrete_input_value(case: TestCase, step: Any, packages: List[Dict[str, Any]]) -> str:
+        name = str(step.element_name or "").strip("〖〗 ")
+        values = [str(item).strip() for item in case.test_data if str(item).strip()]
+        for wrapped in packages:
+            package = wrapped.get("package", {})
+            inputs = (package.get("requirement") or {}).get("inputs") or []
+            if isinstance(inputs, dict):
+                values.extend(f"{key}: {value}" for key,value in inputs.items() if value not in (None,"",[],{}))
+            elif isinstance(inputs, list):
+                values.extend(str(item).strip() for item in inputs if str(item).strip())
+            elif inputs:
+                values.append(str(inputs).strip())
+        ordered = sorted(values, key=lambda value: (0 if name and name in value else 1, len(value)))
+        for value in ordered:
+            match = re.search(r"(?:[:：=]|输入|选择|设置|上传)\s*[‘’'\"“”]?([^,，;；\n‘’'\"“”]+)", value)
+            candidate = (match.group(1) if match else (value if len(ordered)==1 else "")).strip()
+            if (candidate and candidate not in {name,"待确认","未知","按需求填写","具体值"}
+                    and not any(marker in candidate for marker in ("需求规定","按需求","待补充","待明确"))):
+                return candidate[:500]
+        return ""
+
     @staticmethod
     def _validate_and_render_detailed_cases(
         cases: List[TestCase], packages: List[Dict[str, Any]], case_type: str = "功能测试"
@@ -694,8 +786,14 @@ class GenerationService:
         allowed_elements = valid_elements | candidate_elements
         rendered: List[TestCase] = []
         for case in cases:
+            quality_issues = list(case.quality_issues)
+            if not case.preconditions:
+                quality_issues.append(GenerationService._quality_issue("incomplete_preconditions", "先决条件不完整"))
+            if not case.evaluation_criteria.strip() or case.evaluation_criteria.strip() in {"通过", "符合要求", "正确"}:
+                quality_issues.append(GenerationService._quality_issue("generic_pass_criteria", "通过准则不够具体"))
             if valid_pages and not case.structured_steps:
-                raise StructuredOutputError(f"用例 {case.case_id} 缺少 structured_steps")
+                quality_issues.append(GenerationService._quality_issue("missing_structured_steps", "缺少结构化步骤，保留原始步骤待审核"))
+                case = case.model_copy(update={"quality_issues":quality_issues,"need_human_confirm":True})
             if not case.structured_steps:
                 rendered.append(case)
                 continue
@@ -705,7 +803,10 @@ class GenerationService:
             case_needs_confirmation = case.need_human_confirm
             for index, original_step in enumerate(case.structured_steps, 1):
                 step = original_step
-                if not step.element_id and step.action in {"click", "input", "select", "check"}:
+                action = str(step.action or "").strip().lower()
+                input_actions = {"input","select","set","fill","upload","输入","填写","选择","设置","上传"}
+                ui_actions = input_actions | {"click","check","uncheck","点击","勾选","取消勾选"}
+                if not step.element_id and action in ui_actions:
                     matches = [
                         element_id
                         for element_id, item in element_evidence.items()
@@ -714,6 +815,12 @@ class GenerationService:
                     if len(matches) == 1:
                         step = step.model_copy(update={"element_id": matches[0]})
                 evidence = element_evidence.get(step.element_id)
+                # Explicit IDs are factual claims.  Validate them before the
+                # pure-requirement fallback clears descriptive UI fields.
+                if step.page_id and step.page_id not in allowed_pages:
+                    raise StructuredOutputError(f"使用不存在的证据页面 {step.page_id}")
+                if step.element_id and step.element_id not in allowed_elements:
+                    raise StructuredOutputError(f"使用不存在的证据元素 {step.element_id}")
                 if evidence:
                     element_name = step.element_name or str(evidence["element_name"])
                     if element_name and "〖" not in element_name:
@@ -731,32 +838,50 @@ class GenerationService:
                         if not step.selection_reason.strip():
                             step = step.model_copy(update={"selection_reason":"模型选择了真实候选元素但未返回关联理由；具体关联理由待人工确认"})
                         case_needs_confirmation = True
-                if (not allowed_pages or (candidate_mode and not step.page_id and not step.element_id)) and step.action in {"click", "input", "select", "check"}:
+                if (not allowed_pages or (candidate_mode and not step.page_id and not step.element_id)) and action in ui_actions:
                     step = step.model_copy(update={
                         "page_id":"", "page_name":"", "region":"", "element_id":"",
                         "element_name":"", "element_type":"", "need_human_confirm":True,
                     })
                     case_needs_confirmation = True
                 if step.step_no != index:
-                    raise StructuredOutputError(f"用例 {case.case_id} 步骤编号不连续")
+                    quality_issues.append(GenerationService._quality_issue("step_number_repaired", f"第{index}步编号不连续，已自动修正", "warning"))
+                    step = step.model_copy(update={"step_no":index})
                 if step.page_id and step.page_id not in allowed_pages:
                     raise StructuredOutputError(f"用例 {case.case_id} 使用不存在的证据页面 {step.page_id}")
                 if step.element_id and step.element_id not in allowed_elements:
                     raise StructuredOutputError(f"用例 {case.case_id} 使用不存在的证据元素 {step.element_id}")
                 if evidence and step.page_id and str(evidence["page_id"]) != step.page_id:
                     raise StructuredOutputError(f"用例 {case.case_id} 的元素 {step.element_id} 不属于页面 {step.page_id}")
-                if step.action in {"click", "input", "select", "check"}:
+                if action in ui_actions:
                     if valid_pages or (candidate_mode and (step.page_id or step.element_id)):
                         if not step.page_id or not step.page_name or not step.region:
-                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少已确认页面或真实区域")
+                            quality_issues.append(GenerationService._quality_issue("missing_page_region_detail", f"第{index}步页面或区域不够详细"))
+                            step = step.model_copy(update={"need_human_confirm":True})
+                            case_needs_confirmation = True
                         if not step.element_id or not evidence:
-                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少真实目录元素")
-                        if not evidence.get("region"):
-                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步真实元素缺少区域证据")
+                            quality_issues.append(GenerationService._quality_issue("missing_real_element", f"第{index}步未选出真实目录元素"))
+                            step = step.model_copy(update={"need_human_confirm":True})
+                            case_needs_confirmation = True
+                        if evidence and not evidence.get("region"):
+                            quality_issues.append(GenerationService._quality_issue("position_pending_confirmation", f"第{index}步真实元素缺少方位证据"))
+                            step = step.model_copy(update={"need_human_confirm":True})
+                            case_needs_confirmation = True
                         if not step.element_name or "〖" not in step.element_name or "〗" not in step.element_name:
-                            raise StructuredOutputError(f"用例 {case.case_id} 第{index}步控件名称未使用〖〗")
-                if step.action in {"input", "select"} and not step.input_value:
-                    raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少具体输入值")
+                            quality_issues.append(GenerationService._quality_issue("control_name_format", f"第{index}步控件名称格式待修正", "warning"))
+                if action in input_actions and not step.input_value:
+                    repaired_value = GenerationService._concrete_input_value(case, step, packages)
+                    if repaired_value:
+                        step = step.model_copy(update={"input_value":repaired_value})
+                        quality_issues.append(GenerationService._quality_issue("input_value_repaired", f"第{index}步已从用例或需求输入资料补入具体值", "warning", repaired_value=repaired_value))
+                    else:
+                        issue=GenerationService._quality_issue("missing_concrete_input", f"第{index}步输入类动作缺少具体值")
+                        step = step.model_copy(update={"need_human_confirm":True,"quality_issues":[*step.quality_issues,issue]})
+                        quality_issues.append(issue); case_needs_confirmation=True
+                if action in {"wait","等待"} and not re.search(r"\d|直到|直至|条件|出现|完成", step.instruction):
+                    issue=GenerationService._quality_issue("missing_wait_condition", f"第{index}步缺少等待时限或结束条件")
+                    step=step.model_copy(update={"need_human_confirm":True,"quality_issues":[*step.quality_issues,issue]})
+                    quality_issues.append(issue); case_needs_confirmation=True
                 result = step.expected_result
                 if (
                     result.visible_message
@@ -775,10 +900,14 @@ class GenerationService:
                 result_parts = [result.page_change, result.element_change, result.visible_message, result.data_change, result.online_confirmation]
                 observable = "；".join(item for item in result_parts if item)
                 if not observable:
-                    raise StructuredOutputError(f"用例 {case.case_id} 第{index}步缺少可观察预期")
+                    observable="具体可观察预期待人工确认"
+                    issue=GenerationService._quality_issue("missing_observable_expected", f"第{index}步缺少可观察预期")
+                    quality_issues.append(issue); case_needs_confirmation=True
+                    step=step.model_copy(update={"need_human_confirm":True})
                 if any(word in observable for word in ("正常显示", "正确处理")):
-                    raise StructuredOutputError(f"用例 {case.case_id} 第{index}步包含主观预期")
-                if step.action in {"click", "input", "select", "check"}:
+                    quality_issues.append(GenerationService._quality_issue("generic_expected_result", f"第{index}步预期结果较笼统"))
+                    case_needs_confirmation=True; step=step.model_copy(update={"need_human_confirm":True})
+                if action in ui_actions:
                     if step.page_name and step.element_name:
                         location = f"在〖{step.page_name}〗页面"
                         if step.region:
@@ -788,7 +917,15 @@ class GenerationService:
                             "input": f"在{step.element_name}中输入“{step.input_value}”",
                             "select": f"从{step.element_name}选择“{step.input_value}”",
                             "check": f"勾选{step.element_name}",
-                        }[step.action]
+                            "uncheck": f"取消勾选{step.element_name}",
+                            "set": f"为{step.element_name}设置“{step.input_value}”",
+                            "fill": f"在{step.element_name}中填写“{step.input_value}”",
+                            "upload": f"向{step.element_name}上传“{step.input_value}”",
+                            "点击": f"点击{step.element_name}", "输入":f"在{step.element_name}中输入“{step.input_value}”",
+                            "填写":f"在{step.element_name}中填写“{step.input_value}”", "选择":f"从{step.element_name}选择“{step.input_value}”",
+                            "设置":f"为{step.element_name}设置“{step.input_value}”", "上传":f"向{step.element_name}上传“{step.input_value}”",
+                            "勾选":f"勾选{step.element_name}", "取消勾选":f"取消勾选{step.element_name}",
+                        }.get(action, step.instruction)
                         instruction = f"{location}，{action_text}。"
                     else:
                         instruction = step.instruction
@@ -808,6 +945,7 @@ class GenerationService:
             if case_needs_confirmation and "缺少可支持部分页面提示的需求或观测证据" not in missing:
                 missing.append("缺少可支持部分页面提示的需求或观测证据")
             rendered.append(case.model_copy(update={"structured_steps": normalized_steps, "test_steps": instructions, "expected_results": expected, "need_human_confirm": case_needs_confirmation, "missing_information": missing,
+                "quality_issues":quality_issues,
                 "page_ids":list(dict.fromkeys([*case.page_ids,*selected_page_ids])), "html_element_ids":list(dict.fromkeys([*case.html_element_ids,*selected_element_ids]))}))
         return rendered
 
@@ -1150,19 +1288,9 @@ class GenerationService:
     ) -> None:
         if not cases or len(cases) > request.case_count:
             raise StructuredOutputError("Agent returned an invalid number of cases")
-        ids = [case.case_id for case in cases]
-        if len(ids) != len(set(ids)):
-            raise StructuredOutputError("Agent returned duplicate case_id values")
-        allowed_requirements = set(request.requirement_ids)
-        for case in cases:
-            if not set(case.requirement_ids).issubset(allowed_requirements):
-                raise StructuredOutputError(
-                    f"Case {case.case_id} references requirements outside the request"
-                )
-            if len(case.test_steps) != len(case.expected_results):
-                raise StructuredOutputError(
-                    f"Case {case.case_id} steps and expected results do not align"
-                )
+        # Model case IDs are disposable candidate labels.  Requirement scope and
+        # step alignment are checked per case later so one hard error cannot
+        # discard otherwise reviewable siblings.
 
     def _score_and_persist(
         self,
@@ -1198,8 +1326,18 @@ class GenerationService:
                 generation_metadata,
             )
             quality = evaluate_case_quality(persistence_data, context)
+            validation_issues = list(case.quality_issues)
+            quality["validation_issues"] = validation_issues
+            quality["severity_counts"] = {
+                level: sum(item.get("severity") == level for item in validation_issues)
+                for level in ("hard_error","review_required","warning")
+            }
             persistence_data["quality_score"] = quality["score"]
-            persistence_data["quality_issues"] = quality["issues"]
+            persistence_data["quality_issues"] = [*validation_issues, *[
+                self._quality_issue("quality_standard", str(issue), "review_required")
+                for issue in quality["issues"]
+            ]]
+            persistence_data["review_status"] = case.review_status
             valid_chunks = {
                 str(row.get("chunk_id") or ""): row
                 for row in context.get("related_chunks") or []
@@ -1236,6 +1374,7 @@ class GenerationService:
                     persistence_data=persistence_data,
                     quality=quality,
                     context_id=str(context.get("context_id") or ""),
+                    review_status=case.review_status,
                 )
             )
         return records

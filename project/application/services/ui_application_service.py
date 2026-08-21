@@ -432,6 +432,10 @@ class UIApplicationService:
             "failed": [],
             "cases": [],
             "diagnostic_runs": [],
+            "requirements": [],
+            "valid_case_count": 0,
+            "review_case_count": 0,
+            "rejected_case_count": 0,
         }
         for index, requirement_id in enumerate(ordered_ids, 1):
             if cancellation_callback and cancellation_callback():
@@ -472,6 +476,15 @@ class UIApplicationService:
                 result = self.generate(request, **kwargs)
                 dumped = result.model_dump(mode="json")
                 summary["cases"].extend(dumped.get("cases") or [])
+                summary["valid_case_count"] += int(result.valid_case_count)
+                summary["review_case_count"] += int(result.review_case_count)
+                summary["rejected_case_count"] += int(result.rejected_case_count)
+                summary["requirements"].append({
+                    "requirement_id":requirement_id, "status":"completed",
+                    "generated":len(result.cases), "valid":result.valid_case_count,
+                    "review_required":result.review_case_count,
+                    "hard_rejected":result.rejected_case_count, "failure_reason":"",
+                })
                 summary["diagnostic_runs"].append({
                     "requirement_id": requirement_id,
                     "generation_mode": dumped.get("generation_mode"),
@@ -500,6 +513,11 @@ class UIApplicationService:
                 summary["failed"].append({
                     "requirement_id": requirement_id,
                     "error": f"{type(exc).__name__}: {exc}",
+                })
+                summary["requirements"].append({
+                    "requirement_id":requirement_id, "status":"failed", "generated":0,
+                    "valid":0, "review_required":0, "hard_rejected":0,
+                    "failure_reason":summary["failed"][-1]["error"],
                 })
                 relay({"kind": "error", "content": summary["failed"][-1]["error"]})
         return summary
@@ -660,6 +678,7 @@ class UIApplicationService:
                 "missing_information": [],
                 "retained": False,
             })
+
         section_32=len(parsed.get("overview_nodes") or [])
         section_33=len(parsed.get("detail_nodes") or [])
         warnings=list(parsed.get("warnings") or [])
@@ -668,6 +687,21 @@ class UIApplicationService:
         elapsed=round(time.monotonic()-started,3)
         logger.info("CSCI parse completed project=%s nodes=%s testable=%s elapsed=%s",project_id,len(nodes),len(parsed["testable_nodes"]),elapsed)
         return {"section_32_count":section_32,"section_33_count":section_33,"node_count":len(nodes),"testable_count":len(parsed["testable_nodes"]),"warnings":warnings,"elapsed_seconds":elapsed,"extraction_method":"csci_structured","fallback_reason":"","structure_confidence":parsed.get("structure_confidence",0),"nodes":[x.model_dump(mode="json") for x in nodes],"overview_nodes":[x.model_dump(mode="json") for x in parsed["overview_nodes"]],"testable_nodes":[x.model_dump(mode="json") for x in parsed["testable_nodes"]],"indicators":[x.model_dump(mode="json") for x in indicators]}
+
+    def set_case_review_status(self, project_id: str, case_id: str, status: str) -> Dict[str, Any]:
+        if status not in {"accepted", "inactive", "draft_needs_review"}:
+            raise ValueError("不支持的用例审核状态")
+        row = next((item for item in self.manager.list_generated_cases(project_id) if item.get("case_id") == case_id), None)
+        if not row:
+            raise KeyError("当前项目不存在该用例")
+        case = dict(row.get("case_json") or {})
+        case["review_status"] = status
+        if status == "accepted":
+            case["need_human_confirm"] = False
+        elif status == "draft_needs_review":
+            case["need_human_confirm"] = True
+        self.manager.save_generated_case(project_id, case, row.get("generation_run_id", ""), None)
+        return {"case_id":case_id,"review_status":status}
 
     def extract_requirement_document(self,project_id:str,path:Path,mode:str="auto",progress_callback:Any=None)->Dict[str,Any]:
         """Route both extraction methods into the canonical node/indicator stores."""
@@ -1046,11 +1080,12 @@ class UIApplicationService:
             observations=scalar("SELECT count(*) FROM html_observations WHERE project_id=?")
             bindings=scalar("SELECT count(*) FROM requirement_page_links WHERE project_id=? AND status='confirmed'")
             pending=scalar("SELECT count(*) FROM requirement_page_links WHERE project_id=? AND need_human_confirm=1")+scalar("SELECT count(*) FROM requirement_element_links WHERE project_id=? AND need_human_confirm=1")
-            covered=scalar("SELECT count(DISTINCT indicator_id) FROM case_indicator_links WHERE project_id=?")
+            covered=scalar("SELECT count(DISTINCT indicator_id) FROM case_indicator_links WHERE project_id=? AND coverage_status='confirmed'")
+            planned=scalar("SELECT count(DISTINCT indicator_id) FROM case_indicator_links WHERE project_id=? AND coverage_status IN ('confirmed','proposed')")
             online=scalar("SELECT count(*) FROM requirement_indicators WHERE project_id=? AND verification_scope='online_required'")
             packages=scalar("SELECT count(*) FROM site_packages WHERE project_id=?")
         cases=len(self.manager.list_generated_cases(project_id)); total=max(1,atoms)
-        return {"document_uploaded":bool(self.manager.list_documents(project_id)),"section_32_identified":bool(nodes),"section_33_identified":bool(nodes),"lowest_function_count":testable,"atom_count":atoms,"atom_review_passed":bool(testable and reviewed==testable),"html_uploaded":bool(packages or pages),"page_count":pages,"playwright":self.playwright_status(),"exploration_completed":bool(observations),"binding_completion":round(bindings/max(1,testable),4),"pending_confirmation":pending,"case_count":cases,"atomic_coverage_rate":round(covered/total,4),"online_required":online,"reviewed":bool(self.manager.list_review_results(project_id)),"exported":any((self.manager.project_dir(project_id)/"exports").iterdir()) if (self.manager.project_dir(project_id)/"exports").exists() else False}
+        return {"document_uploaded":bool(self.manager.list_documents(project_id)),"section_32_identified":bool(nodes),"section_33_identified":bool(nodes),"lowest_function_count":testable,"atom_count":atoms,"atom_review_passed":bool(testable and reviewed==testable),"html_uploaded":bool(packages or pages),"page_count":pages,"playwright":self.playwright_status(),"exploration_completed":bool(observations),"binding_completion":round(bindings/max(1,testable),4),"pending_confirmation":pending,"case_count":cases,"atomic_coverage_rate":round(covered/total,4),"planned_atomic_coverage_rate":round(planned/total,4),"online_required":online,"reviewed":bool(self.manager.list_review_results(project_id)),"exported":any((self.manager.project_dir(project_id)/"exports").iterdir()) if (self.manager.project_dir(project_id)/"exports").exists() else False}
 
     def traceability_rows(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]:
         """Return bounded UI rows; full datasets are read only by explicit export."""

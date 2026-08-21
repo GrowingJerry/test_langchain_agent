@@ -174,7 +174,8 @@ class GenerationRepository(BaseRepository):
             if source_chunks is not None:
                 self.traces.replace_for_case(conn, project_id, case_id, chunks)
             for indicator_id in dict.fromkeys(case_data.get("indicator_ids") or []):
-                conn.execute("INSERT OR REPLACE INTO case_indicator_links(project_id,case_id,indicator_id,case_version,step_numbers_json,coverage_type,coverage_status) VALUES(?,?,?,?,?,?,?)",(project_id,case_id,str(indicator_id),int(case_data.get("case_version") or 1),dumps_json(list(range(1,len(case_data.get("test_steps") or [])+1))),str(case_data.get("case_nature") or case_type),"covered"))
+                coverage_status = {"draft_needs_review":"proposed","inactive":"inactive"}.get(str(case_data.get("review_status") or ""), "confirmed")
+                conn.execute("INSERT OR REPLACE INTO case_indicator_links(project_id,case_id,indicator_id,case_version,step_numbers_json,coverage_type,coverage_status) VALUES(?,?,?,?,?,?,?)",(project_id,case_id,str(indicator_id),int(case_data.get("case_version") or 1),dumps_json(list(range(1,len(case_data.get("test_steps") or [])+1))),str(case_data.get("case_nature") or case_type),coverage_status))
             for page_id in dict.fromkeys(case_data.get("page_ids") or []): conn.execute("INSERT OR IGNORE INTO case_page_links(project_id,case_id,page_id) VALUES(?,?,?)",(project_id,case_id,str(page_id)))
             for element_id in dict.fromkeys(case_data.get("html_element_ids") or []): conn.execute("INSERT OR IGNORE INTO case_element_links(project_id,case_id,element_id) VALUES(?,?,?)",(project_id,case_id,str(element_id)))
             for observation_id in dict.fromkeys(case_data.get("playwright_observation_ids") or []): conn.execute("INSERT OR IGNORE INTO case_observation_links(project_id,case_id,observation_id) VALUES(?,?,?)",(project_id,case_id,str(observation_id)))

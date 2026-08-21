@@ -205,6 +205,18 @@ def render_review_trace_page(service, project_id, config) -> None:
         "选择用例", list(cases_by_id), key=f"review_case_{project_id}"
     )
     case = dict(cases_by_id[case_id].get("case_json") or {})
+    if case.get("quality_issues"):
+        st.warning("待处理质量问题")
+        st.json(case.get("quality_issues"))
+    actions = st.columns(2)
+    if actions[0].button("接受草稿", disabled=case.get("review_status") != "draft_needs_review", key=f"accept_draft_{project_id}_{case_id}"):
+        service.set_case_review_status(project_id, case_id, "accepted")
+        st.success("草稿已接受，覆盖关系已更新为确认覆盖。")
+        st.rerun()
+    if actions[1].button("停用用例", disabled=case.get("review_status") == "inactive", key=f"disable_case_{project_id}_{case_id}"):
+        service.set_case_review_status(project_id, case_id, "inactive")
+        st.success("用例已停用，历史数据仍保留。")
+        st.rerun()
     with st.form(f"edit_case_{project_id}_{case_id}"):
         case["case_name"] = st.text_input("用例名称", case.get("case_name", ""))
         case["test_purpose"] = st.text_area("测试目的", case.get("test_purpose", ""))

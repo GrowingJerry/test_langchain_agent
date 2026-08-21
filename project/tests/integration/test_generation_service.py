@@ -19,7 +19,7 @@ from infrastructure.exporters.project_documents import (
     export_project_word,
 )
 from domain.exceptions import AgentExecutionError, StructuredOutputError
-from domain.schemas.test_case import TestCase
+from domain.schemas.test_case import TestCase, StructuredExpectedResult, StructuredTestStep
 from application.services.generation_service import GenerationRequest, GenerationService
 from application.services.ui_application_service import UIApplicationService
 
@@ -550,3 +550,106 @@ def test_repeated_request_does_not_overwrite_primary_key(workspace) -> None:
     second = service.generate_test_cases(request(project_id))
     assert first.cases[0].case.case_id != second.cases[0].case.case_id
     assert len(manager.list_generated_cases(project_id)) == 2
+
+
+def _quality_candidate(chunk_id: str, index: int, *, action: str = "observe", input_value: str = "", element_id: str = "") -> TestCase:
+    return TestCase(
+        case_id=f"TC-MODEL-{index:03d}", title=f"候选{index}", objective="验证订单接收",
+        preconditions=["订单服务已启动"], test_steps=["执行并观察订单接收"],
+        expected_results=["形成可观察的订单处理记录"], evaluation_criteria="处理记录与需求规定一致",
+        test_data=[], requirement_ids=["REQ-1"], source_chunk_ids=[chunk_id],
+        structured_steps=[StructuredTestStep(
+            step_no=1, action=action, element_id=element_id, input_value=input_value,
+            instruction="执行并观察订单接收", expected_result=StructuredExpectedResult(data_change="形成订单处理记录")
+        )],
+    )
+
+
+def test_click_does_not_require_input_value_and_missing_input_becomes_draft(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    click = _quality_candidate(chunk_id, 1, action="click")
+    missing = _quality_candidate(chunk_id, 2, action="input")
+    service = GenerationService(manager, settings=enabled_settings(ollama_num_ctx=32768,ollama_structured_num_predict=8192), health_client=Health(),
+        agent_builder=lambda runtime: FakeAgent(GeneratedCaseBundle(cases=[click, missing])))
+    result = service.generate_test_cases(request(project_id, case_count=2, scenario_ids=[]))
+    assert len(result.cases) == 2 and result.rejected_case_count == 0
+    click_record = next(row for row in result.cases if row.case.title == "候选1")
+    missing_record = next(row for row in result.cases if row.case.title == "候选2")
+    assert not any(item.get("code") == "missing_concrete_input" for item in click_record.case.quality_issues)
+    assert missing_record.review_status == "draft_needs_review"
+    assert any(item.get("code") == "missing_concrete_input" for item in missing_record.case.quality_issues)
+    assert all(not row.case.case_id.startswith(("TC-MODEL", "case-")) for row in result.cases)
+
+
+def test_input_value_is_repaired_from_test_data(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    case = _quality_candidate(chunk_id, 1, action="input").model_copy(update={"test_data":["手机号：13800138000"]})
+    service = GenerationService(manager, settings=enabled_settings(ollama_num_ctx=32768,ollama_structured_num_predict=8192), health_client=Health(),
+        agent_builder=lambda runtime: FakeAgent(GeneratedCaseBundle(cases=[case])))
+    result = service.generate_test_cases(request(project_id, scenario_ids=[]))
+    assert result.cases[0].case.structured_steps[0].input_value == "13800138000"
+    assert any(item.get("code") == "input_value_repaired" for item in result.cases[0].case.quality_issues)
+
+
+def test_one_hard_error_does_not_discard_valid_sibling(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    valid = _quality_candidate(chunk_id, 1)
+    fabricated = _quality_candidate(chunk_id, 2, action="click", element_id="EL-NOT-EXISTS")
+    service = GenerationService(manager, settings=enabled_settings(ollama_num_ctx=32768,ollama_structured_num_predict=8192), health_client=Health(),
+        agent_builder=lambda runtime: FakeAgent(GeneratedCaseBundle(cases=[valid, fabricated])))
+    result = service.generate_test_cases(request(project_id, case_count=2, scenario_ids=[]))
+    assert len(result.cases) == 1 and result.rejected_case_count == 1
+    assert "EL-NOT-EXISTS" in result.rejected_cases[0]["reason"]
+    assert result.rejected_cases[0]["candidate_label"].startswith("候选用例2《")
+    assert "TC-MODEL" not in result.rejected_cases[0]["candidate_label"]
+    assert len(manager.list_generated_cases(project_id)) == 1
+    assert Path(result.diagnostic_log_path).parent.joinpath("05-hard-rejected-cases.json").exists()
+
+
+def test_eight_cases_preserve_seven_ready_and_one_review_draft(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    cases = [_quality_candidate(chunk_id,index,action="input" if index == 8 else "observe") for index in range(1,9)]
+    service = GenerationService(manager, settings=enabled_settings(ollama_num_ctx=65536,ollama_structured_num_predict=16384), health_client=Health(),
+        agent_builder=lambda runtime: FakeAgent(GeneratedCaseBundle(cases=cases)))
+    result = service.generate_test_cases(request(project_id,case_count=8,scenario_ids=[]))
+    assert result.valid_case_count == 7
+    assert result.review_case_count == 1
+    assert result.rejected_case_count == 0
+    assert len(manager.list_generated_cases(project_id)) == 8
+    with manager.connections.connection() as conn:
+        statuses={row[0] for row in conn.execute("SELECT DISTINCT coverage_status FROM case_indicator_links WHERE project_id=?",(project_id,))}
+    assert statuses <= {"confirmed","proposed"}
+
+
+def test_batch_continues_after_review_draft_and_completes_next_requirement(workspace) -> None:
+    manager, project_id, chunk_id = workspace
+    manager.upsert_requirement(project_id,{"requirement_id":"REQ-2","title":"查询订单","description":"查询并观察订单记录","source_document":"requirements.txt","source_chunk_id":chunk_id})
+    ui = UIApplicationService.__new__(UIApplicationService); ui.manager=manager
+    def generate_one(current_request, progress_callback=None):
+        requirement_id=current_request.requirement_ids[0]
+        case=_quality_candidate(chunk_id,1,action="input" if requirement_id=="REQ-1" else "observe").model_copy(update={"requirement_ids":[requirement_id],"title":requirement_id})
+        return GenerationService(manager,settings=enabled_settings(ollama_num_ctx=32768,ollama_structured_num_predict=8192),health_client=Health(),
+            agent_builder=lambda runtime:FakeAgent(GeneratedCaseBundle(cases=[case]))).generate_test_cases(current_request,progress_callback=progress_callback)
+    ui.generate=generate_one
+    summary=ui.generate_requirement_batch(request(project_id,scenario_ids=[]),["REQ-1","REQ-2"],"QUALITY-BATCH")
+    assert summary["completed"] == ["REQ-1","REQ-2"]
+    assert summary["failed"] == []
+    assert summary["valid_case_count"] == 1 and summary["review_case_count"] == 1
+    assert len(summary["requirements"]) == 2
+
+
+def test_draft_accept_and_inactive_update_coverage_status(workspace) -> None:
+    manager, project_id, _ = workspace
+    case={"case_id":"REQ-1-ORDER-0099","requirement_id":"REQ-1","case_type":"功能测试",
+          "test_steps":["执行"],"indicator_ids":["ATOM-QUALITY"],"review_status":"draft_needs_review",
+          "need_human_confirm":True,"quality_issues":[{"code":"missing_concrete_input","severity":"review_required","message":"缺少具体输入"}]}
+    manager.save_generated_case(project_id,case)
+    ui=UIApplicationService.__new__(UIApplicationService); ui.manager=manager
+    with manager.connections.connection() as conn:
+        assert conn.execute("SELECT coverage_status FROM case_indicator_links WHERE project_id=? AND case_id=?",(project_id,case["case_id"])).fetchone()[0] == "proposed"
+    ui.set_case_review_status(project_id,case["case_id"],"accepted")
+    with manager.connections.connection() as conn:
+        assert conn.execute("SELECT coverage_status FROM case_indicator_links WHERE project_id=? AND case_id=?",(project_id,case["case_id"])).fetchone()[0] == "confirmed"
+    ui.set_case_review_status(project_id,case["case_id"],"inactive")
+    with manager.connections.connection() as conn:
+        assert conn.execute("SELECT coverage_status FROM case_indicator_links WHERE project_id=? AND case_id=?",(project_id,case["case_id"])).fetchone()[0] == "inactive"

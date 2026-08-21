@@ -110,7 +110,7 @@ def test_interface_case_does_not_require_html_region() -> None:
     assert rendered.expected_results == ["返回HTTP响应码和响应体"]
 
 
-def test_confirmed_element_requires_real_region_evidence() -> None:
+def test_confirmed_element_without_region_is_preserved_for_review() -> None:
     case = _case("TC-NO-REGION").model_copy(update={"structured_steps": [
         StructuredTestStep(step_no=1, element_id="EL-1", action="click", instruction="点击保存",
             expected_result=StructuredExpectedResult(element_change="按钮触发保存"))
@@ -118,6 +118,6 @@ def test_confirmed_element_requires_real_region_evidence() -> None:
     packages = [{"package": {"page_evidence": [{"page_id":"PAGE-1", "title":"配置", "binding_status":"confirmed",
         "elements":[{"element_id":"EL-1", "label":"保存", "binding_status":"confirmed"}]}]}}]
 
-    import pytest
-    with pytest.raises(Exception, match="真实区域"):
-        GenerationService._validate_and_render_detailed_cases([case], packages, "功能测试")
+    rendered = GenerationService._validate_and_render_detailed_cases([case], packages, "功能测试")[0]
+    assert rendered.need_human_confirm is True
+    assert any(item["code"] == "position_pending_confirmation" for item in rendered.quality_issues)

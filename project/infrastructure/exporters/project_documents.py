@@ -152,6 +152,11 @@ def build_project_export_rows(
                 ),
                 "source_chunk_ids": "\n".join(source_chunk_ids),
                 "generation_run_id": item.get("generation_run_id", ""),
+                "review_status": case_json.get("review_status", "ready"),
+                "quality_issues": _join([
+                    issue.get("message", "") if isinstance(issue, dict) else str(issue)
+                    for issue in case_json.get("quality_issues", [])
+                ]),
             }
         )
         matrix_rows.append(
@@ -161,7 +166,7 @@ def build_project_export_rows(
                 "case_name": _case_field(case_json, "case_name", "用例名称"),
                 "case_type": item.get("case_type")
                 or _case_field(case_json, "case_type", "测试类别"),
-                "covered": "Y" if case_id and requirement_id else "N",
+                "covered": ("PROPOSED" if case_json.get("review_status") == "draft_needs_review" else "Y") if case_id and requirement_id else "N",
                 "source_chunk_ids": "\n".join(source_chunk_ids),
             }
         )

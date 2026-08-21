@@ -41,13 +41,14 @@ class StructuredTestStep(BaseModel):
     element_id: str = ""
     element_name: str = ""
     element_type: str = ""
-    action: Literal["click", "input", "select", "check", "wait", "observe"]
+    action: str = Field(min_length=1)
     input_value: str = ""
     instruction: str = Field(min_length=1)
     expected_result: StructuredExpectedResult
     evidence_source: str = ""
     binding_status: str = ""
     selection_reason: str = ""
+    quality_issues: List[Dict[str, Any]] = Field(default_factory=list)
     need_human_confirm: bool = False
 
 
@@ -85,6 +86,8 @@ class TestCase(BaseModel):
     offline_verifiable: bool = False
     online_verification_items: List[str] = Field(default_factory=list)
     structured_steps: List[StructuredTestStep] = Field(default_factory=list)
+    review_status: Literal["ready", "draft_needs_review", "accepted", "inactive"] = "ready"
+    quality_issues: List[Dict[str, Any]] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
