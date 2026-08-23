@@ -205,7 +205,8 @@ def iter_offline_html_elements(content: str | bytes, page_path: str = "index.htm
             allowed={"id","name","type","role","aria-label","placeholder","value","required","readonly","disabled","min","max","minlength","maxlength","pattern","checked","selected","href","action","target"}
             attrs={k:(str(v)[:500] if v is not None else "") for k,v in raw.attrs.items() if k.lower() in allowed or k.lower().startswith("on")}
             if str(attrs.get("value","")).lower().startswith("data:"): attrs["value"]="[inline resource omitted]"
-            element_id=_stable_id("EL", page_path, attrs.get("id", ""), raw.path, str(index))
+            stable_name=attrs.get("id") or attrs.get("name") or attrs.get("aria-label") or parser.labels.get(attrs.get("id", ""), "") or attrs.get("placeholder") or raw.text.strip()
+            element_id=_stable_id("EL", page_id, raw.tag, stable_name, raw.path)
             label=parser.labels.get(attrs.get("id", ""), ""); locators=[]
             if attrs.get("role") and (attrs.get("aria-label") or label): locators.append(f"role={attrs['role']} name={attrs.get('aria-label') or label}")
             if label: locators.append(f"label={label}")
@@ -215,7 +216,7 @@ def iter_offline_html_elements(content: str | bytes, page_path: str = "index.htm
             landmark = next((tag for tag in reversed(raw.path.split("/")) if tag in {"header","nav","main","aside","section","form","dialog","fieldset","table"}), "")
             region_names={"header":"页眉区","nav":"导航区","main":"主内容区","aside":"侧栏区","section":"内容分区","form":"表单区","dialog":"对话框","fieldset":"字段组","table":"表格区"}
             semantic_position=region_names.get(landmark, "方位待确认")
-            yield HtmlElement(element_id=element_id,page_id=page_id,tag=raw.tag,element_type=attrs.get("type",raw.tag),text=raw.text.strip(),attributes=attrs,label=label,visible=not hidden,enabled="disabled" not in attrs,default_value=attrs.get("value",""),form_id=raw.form_id,local_events=sorted(k for k in attrs if k.lower().startswith("on")),locator_candidates=locators,semantic_position=semantic_position,dom_path=raw.path)
+            yield HtmlElement(element_id=element_id,page_id=page_id,tag=raw.tag,element_type=attrs.get("type",raw.tag),text=raw.text.strip(),attributes=attrs,label=label,visible=not hidden,enabled="disabled" not in attrs,default_value=attrs.get("value",""),form_id=raw.form_id,local_events=sorted(k for k in attrs if k.lower().startswith("on")),locator_candidates=locators,semantic_position=semantic_position,dom_path=raw.path,evidence_source="source_static",stability="high" if stable_name else "low")
     return {"page_id":page_id,"title":parser.title or page_path,"path":page_path},generate()
 
 

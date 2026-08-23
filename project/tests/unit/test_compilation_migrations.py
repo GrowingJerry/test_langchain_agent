@@ -67,6 +67,18 @@ def _columns(conn, table: str) -> dict[str, str]:
     return {row[1]: row[2].upper() for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
+def test_v22_repairs_only_unique_project_scoped_observation_page_ids(manager: ProjectManager) -> None:
+    project_id=manager.create_project("migration") ["project_id"]
+    with manager.connections.transaction() as conn:
+        conn.execute("INSERT INTO site_packages(project_id,site_package_id,filename,root_path,entry_path) VALUES(?,?,?,?,?)",(project_id,"SITE-A","a.html","x","index.html"))
+        conn.execute("INSERT INTO html_pages(project_id,page_id,title,page_path,site_package_id) VALUES(?,?,?,?,?)",(project_id,"PAGE-A","A","index.html","SITE-A"))
+        conn.execute("INSERT INTO html_observations(project_id,observation_id,page_id,site_package_id) VALUES(?,?,?,?)",(project_id,"OBS-A","index.html","SITE-A"))
+    migrate_database(manager.connections)
+    with manager.connections.connection() as conn:
+        row=conn.execute("SELECT page_id,migration_status FROM html_observations WHERE project_id=? AND observation_id='OBS-A'",(project_id,)).fetchone()
+    assert tuple(row)==("PAGE-A","mapped_v22")
+
+
 def test_v2_migration_creates_project_scoped_traceable_tables(manager: ProjectManager) -> None:
     with manager.connections.connection() as conn:
         tables = {

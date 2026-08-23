@@ -929,7 +929,41 @@ class UIApplicationService:
             conn.execute("UPDATE project_requirements SET retained=0 WHERE project_id=? AND requirement_id=?",(project_id,row['identifier']))
         return self.atomize_and_audit_requirements(project_id,progress_callback,resume=True)
 
-    def analyze_offline_html(self, project_id: str, filename: str, content: bytes, include_elements: bool = True) -> Dict[str, Any]:
+    def analyze_offline_html(self,project_id:str,filename:str,content:bytes,include_elements:bool=True)->Dict[str,Any]:
+        from hashlib import sha256
+        from application.services.offline_site_service import scan_html_source
+        from application.services.traceability_service import iter_offline_html_elements
+        from infrastructure.database.json_codec import dumps_json
+        started=time.monotonic(); site_id="SITE-"+sha256(content).hexdigest()[:16].upper(); entry="index.html"
+        root=self.manager.project_dir(project_id)/"site_packages"/site_id; root.mkdir(parents=True,exist_ok=True); target=root/entry
+        if not target.exists() or target.read_bytes()!=content: target.write_bytes(content)
+        scan=scan_html_source(content,entry); page=scan["page"]; page["page_id"]="PAGE-"+sha256(f"{project_id}|{site_id}|{entry}".encode()).hexdigest()[:16].upper(); scan["page"]=page
+        _,stream=iter_offline_html_elements(content,entry); elements=list(stream)
+        for item in elements:
+            item.page_id=page["page_id"]; item.element_id="EL-"+sha256(f"{project_id}|{page['page_id']}|{item.element_id}".encode()).hexdigest()[:16].upper()
+        manifest={"source_type":"single_html","original_filename":filename,"entry_candidates":[entry],"pages":[scan]}
+        with self.manager.connections.transaction() as conn:
+            conn.execute("INSERT OR REPLACE INTO site_packages(project_id,site_package_id,filename,root_path,entry_path,manifest_json) VALUES(?,?,?,?,?,?)",(project_id,site_id,filename,str(root),entry,dumps_json(manifest)))
+            conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset,site_package_id) VALUES(?,?,?,?,?,?)",(project_id,page["page_id"],page["title"],entry,filename,site_id))
+            conn.execute("INSERT OR REPLACE INTO html_page_summaries(project_id,page_id,summary_json,source_bytes,compressed_chars) VALUES(?,?,?,?,?)",(project_id,page["page_id"],dumps_json({**scan,"evidence_source":"source_static"}),len(content),len(scan["visible_text_summary"])))
+            conn.execute("DELETE FROM html_elements WHERE project_id=? AND page_id=? AND site_package_id=?",(project_id,page["page_id"],site_id))
+            for item in elements: conn.execute("INSERT OR REPLACE INTO html_elements(project_id,element_id,page_id,tag,element_type,element_json,site_package_id) VALUES(?,?,?,?,?,?,?)",(project_id,item.element_id,page["page_id"],item.tag,item.element_type,dumps_json(item.model_dump(mode="json")),site_id))
+        result={"site_package_id":site_id,"entry_candidates":[entry],"page":page,"page_count":1,"page_type":scan["page_type"],"requires_browser_render":scan["requires_browser_render"],"source_static":"completed","source_element_count":len(elements),"rendered_element_count":0,"status":"completed","warnings":[],"stages":{"source_static":"completed","browser_rendered":"not_required","playwright_interaction":"not_started"}}
+        if scan["requires_browser_render"]:
+            health=self.playwright_status()
+            if not health.get("available"):
+                result.update(status="playwright_unavailable",failure_stage="browser_rendered",failure_reason=health.get("repair") or health.get("status")); result["stages"]["browser_rendered"]="failed"
+            else:
+                rendered=self.explore_site_package(project_id,site_id,entry,[],observation_action="browser_rendered")
+                result.update(rendered_element_count=len(rendered.get("rendered_elements",[])),status=rendered.get("status","render_failed"),browser_rendered=rendered); result["stages"]["browser_rendered"]="completed" if rendered.get("rendered_elements") else "failed"
+        rendered_items=(result.get("browser_rendered") or {}).get("rendered_elements",[])
+        tags=[x.tag for x in elements]+[str(x.get("tag") or "") for x in rendered_items]
+        roles=[str(x.get("role") or "") for x in rendered_items]
+        result.update(element_count=result["source_element_count"]+result["rendered_element_count"],form_count=sum(x=="form" for x in tags),button_count=sum(x=="button" for x in tags),input_count=sum(x in {"input","textarea","select"} for x in tags),menu_count=sum(x in {"menu","navigation"} for x in roles),table_count=sum(x=="table" for x in tags),screenshot_count=int(bool((result.get("browser_rendered") or {}).get("rendered_screenshot"))),console_error_count=len((result.get("browser_rendered") or {}).get("console_errors",[])),blocked_request_count=len((result.get("browser_rendered") or {}).get("blocked_requests",[])),elapsed_seconds=round(time.monotonic()-started,3))
+        if include_elements: result["elements"]=[x.model_dump(mode="json") for x in elements]
+        return result
+
+    def _legacy_analyze_offline_html(self, project_id: str, filename: str, content: bytes, include_elements: bool = True) -> Dict[str, Any]:
         from application.services.traceability_service import iter_offline_html_elements
         from infrastructure.database.json_codec import dumps_json
         started=time.monotonic()
@@ -983,6 +1017,9 @@ class UIApplicationService:
             conn.execute("INSERT OR REPLACE INTO site_packages(project_id,site_package_id,filename,root_path,entry_path,manifest_json) VALUES(?,?,?,?,?,?)",(project_id,site_id,filename,str(root),entry,dumps_json(manifest)))
             for page_data in manifest["pages"]:
                 page,elements=parse_offline_html((root/page_data["path"]).read_bytes(),page_data["path"])
+                page["page_id"]="PAGE-"+sha256(f"{project_id}|{site_id}|{page_data['path']}".encode()).hexdigest()[:16].upper()
+                for item in elements:
+                    item.page_id=page["page_id"]; item.element_id="EL-"+sha256(f"{project_id}|{page['page_id']}|{item.element_id}".encode()).hexdigest()[:16].upper()
                 conn.execute("INSERT OR REPLACE INTO html_pages(project_id,page_id,title,page_path,source_asset,site_package_id) VALUES(?,?,?,?,?,?)",(project_id,page["page_id"],page["title"],page["path"],filename,site_id))
                 conn.execute("INSERT OR REPLACE INTO html_page_summaries(project_id,page_id,summary_json,source_bytes,compressed_chars) VALUES(?,?,?,?,?)",(project_id,page["page_id"],dumps_json({"page_id":page["page_id"],"title":page["title"],"path":page["path"],"visible_text_summary":page_data.get("visible_text_summary","")}),int(page_data.get("source_bytes",0)),int(page_data.get("compressed_chars",0))))
                 for item in elements:
@@ -991,19 +1028,22 @@ class UIApplicationService:
                 conn.execute("INSERT OR REPLACE INTO site_navigation_relations(project_id,site_package_id,relation_id,source_page,target,relation_type,relation_json) VALUES(?,?,?,?,?,?,?)",(project_id,site_id,f"REL-{index:05d}",relation["source"],relation["target"],relation["kind"],dumps_json(relation)))
         return {"site_package_id":site_id,"root_path":str(root),**manifest}
 
-    def explore_site_package(self, project_id: str, site_package_id: str, entry: str, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def explore_site_package(self, project_id: str, site_package_id: str, entry: str, plan: List[Dict[str, Any]], observation_action: str = "playwright_interaction") -> Dict[str, Any]:
         from infrastructure.database.json_codec import dumps_json
         import json, os, subprocess, sys, uuid
         with self.manager.connections.connection() as conn:
             row=conn.execute("SELECT root_path FROM site_packages WHERE project_id=? AND site_package_id=?",(project_id,site_package_id)).fetchone()
+            page_row=conn.execute("SELECT page_id FROM html_pages WHERE project_id=? AND site_package_id=? AND page_path=?",(project_id,site_package_id,entry)).fetchone()
         if not row: raise KeyError("当前项目中不存在该站点包")
         evidence=self.manager.project_dir(project_id)/"site_packages"/site_package_id/"evidence"; evidence.mkdir(parents=True,exist_ok=True)
+        if not page_row: raise KeyError("site package entry has no project-scoped PAGE identity")
+        formal_page_id=str(page_row["page_id"])
         job_id=uuid.uuid4().hex[:12]; request_path=evidence/f"playwright-{job_id}-request.json"; output_path=evidence/f"playwright-{job_id}-result.json"; log_path=evidence/"playwright.log"
-        request_path.write_text(json.dumps({"root":row["root_path"],"entry":entry,"plan":plan,"evidence_dir":str(evidence)},ensure_ascii=False),"utf-8")
+        request_path.write_text(json.dumps({"root":row["root_path"],"entry":entry,"plan":plan,"evidence_dir":str(evidence),"project_id":project_id,"page_id":formal_page_id},ensure_ascii=False),"utf-8")
         worker=Path(__file__).resolve().parents[2]/"scripts"/"playwright_worker.py"; env=os.environ.copy(); env["PYTHONPATH"]=str(Path(__file__).resolve().parents[2])
         try:
             with log_path.open("a",encoding="utf-8") as log:
-                completed=subprocess.run([sys.executable,"-X","faulthandler",str(worker),"--request",str(request_path),"--output",str(output_path)],cwd=str(worker.parent.parent),env=env,stdout=log,stderr=subprocess.STDOUT,text=True,timeout=120,check=False)
+                completed=subprocess.run([sys.executable,"-X","faulthandler",str(worker),"--request",str(request_path),"--output",str(output_path)],cwd=str(worker.parent.parent),env=env,stdout=log,stderr=subprocess.STDOUT,text=True,timeout=self.settings.playwright_worker_timeout,check=False)
         except subprocess.TimeoutExpired as exc:
             logger.exception("Playwright subprocess timeout project=%s site=%s",project_id,site_package_id)
             return {"entry":entry,"events":[],"blocked_requests":[],"return_code":-1,"failure_reason":f"TimeoutExpired: {exc}","playwright_log":str(log_path)}
@@ -1016,8 +1056,14 @@ class UIApplicationService:
         for event in full_result.get("events",[]):
             compact_events.append({k:v for k,v in event.items() if k not in {"before_dom_summary","after_dom_summary","visible_text_before","visible_text_after","controls"}})
         result={**full_result,"events":compact_events,"visible_text":str(full_result.get("visible_text", ""))[:5000],"return_code":completed.returncode,"failure_reason":"","playwright_log":str(log_path),"full_evidence_file":str(output_path)}
+        observation_id="OBS-"+__import__('hashlib').sha256(f"{project_id}|{site_package_id}|{formal_page_id}|{observation_action}".encode()).hexdigest()[:16].upper()
         with self.manager.connections.transaction() as conn:
-            conn.execute("INSERT INTO html_observations(project_id,observation_id,page_id,action,result_json,site_package_id,evidence_json) VALUES(?,?,?,?,?,?,?)",(project_id,f"OBS-{__import__('uuid').uuid4().hex[:16]}",entry,"bounded_plan",dumps_json(result),site_package_id,dumps_json({"screenshots":[x.get("after_screenshot") for x in result["events"] if x.get("after_screenshot")]})))
+            for item in full_result.get("rendered_elements",[]):
+                detail={**item,"semantic_position":item.get("landmark") or ""}
+                conn.execute("INSERT OR REPLACE INTO html_elements(project_id,element_id,page_id,tag,element_type,element_json,site_package_id) VALUES(?,?,?,?,?,?,?)",(project_id,item["element_id"],formal_page_id,item.get("tag",""),item.get("role") or item.get("tag",""),dumps_json(detail),site_package_id))
+            screenshots=[x for x in [full_result.get("rendered_screenshot"),*[x.get("after_screenshot") for x in result["events"]]] if x]
+            conn.execute("INSERT OR REPLACE INTO html_observations(project_id,observation_id,page_id,action,result_json,site_package_id,evidence_json) VALUES(?,?,?,?,?,?,?)",(project_id,observation_id,formal_page_id,observation_action,dumps_json(result),site_package_id,dumps_json({"evidence_source":observation_action,"page_path":entry,"screenshots":screenshots})))
+        result["observation_id"]=observation_id; result["page_id"]=formal_page_id
         return result
 
     def playwright_status(self) -> Dict[str, Any]:

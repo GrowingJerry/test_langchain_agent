@@ -13,7 +13,7 @@ def main() -> int:
     args=parser.parse_args()
     try:
         request=json.loads(Path(args.request).read_text("utf-8-sig"))
-        result=explore_site(Path(request["root"]),request["entry"],request["plan"],Path(request["evidence_dir"]))
+        result=explore_site(Path(request["root"]),request["entry"],request["plan"],Path(request["evidence_dir"]),project_id=request.get("project_id",""),page_id=request.get("page_id",""))
         Path(args.output).write_text(json.dumps({"ok":True,"result":result},ensure_ascii=False),"utf-8")
         return 0
     except BaseException as exc:

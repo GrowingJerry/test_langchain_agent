@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
-import os, re, shutil, stat, threading, time
+import hashlib, os, re, shutil, stat, threading, time
 from typing import Any, Iterator
 from urllib.parse import urlparse
 from zipfile import BadZipFile, ZipFile
@@ -20,6 +20,28 @@ class SiteLimits:
     max_states:int=60; timeout_seconds:int=60
 
 class UnsafeSitePackage(ValueError): pass
+
+def scan_html_source(content:bytes,page_path:str="index.html")->dict[str,Any]:
+    """Return bounded source facts and decide whether browser rendering is required."""
+    text=content.decode("utf-8",errors="replace")
+    page,elements=parse_offline_html(text,page_path)
+    scripts=re.findall(r"<script\b([^>]*)>(.*?)</script\s*>",text,re.I|re.S)
+    script_chars=sum(len(body) for _,body in scripts)
+    module_chars=sum(len(body) for attrs,body in scripts if re.search(r"\btype\s*=\s*['\"]module['\"]",attrs,re.I))
+    mounts=sorted(set(re.findall(r"<(?:div|main)\b[^>]*\bid\s*=\s*['\"](root|app|application)['\"]",text,re.I)))
+    framework=sorted(name for name,pattern in {"react":r"\b(?:ReactDOM|createRoot|jsx|react)\b","vue":r"\b(?:createApp|Vue)\b","angular":r"\b(?:ng-app|platformBrowserDynamic)\b"}.items() if re.search(pattern,text,re.I))
+    visible=re.sub(r"<(script|style)\b[^>]*>.*?</\1\s*>"," ",text,flags=re.I|re.S)
+    visible=re.sub(r"<[^>]+>"," ",visible); visible=re.sub(r"\s+"," ",visible).strip()
+    dynamic_score=sum((not elements, bool(mounts), module_chars>=4096, bool(framework), script_chars>len(text)*.5, len(visible)<80))
+    return {"page":page,"source_bytes":len(content),"charset":"utf-8_or_replacement","source_element_count":len(elements),
+        "inline_script_count":len(scripts),"inline_script_chars":script_chars,"module_script_chars":module_chars,
+        "mount_nodes":mounts,"framework_signals":framework,"visible_text_summary":visible[:8000],
+        "requires_browser_render":dynamic_score>=2,"page_type":"dynamic_spa" if dynamic_score>=2 else "static_html","dynamic_score":dynamic_score}
+
+def _stable_rendered_id(project_id:str,page_id:str,item:dict[str,Any])->tuple[str,str]:
+    stable="|".join(str(item.get(k) or "") for k in ("role","tag","id","name","accessible_name","label","placeholder","landmark","dom_path"))
+    confidence="high" if any(item.get(k) for k in ("id","name","accessible_name","label","placeholder")) else "low"
+    return "EL-"+hashlib.sha256(f"{project_id}|{page_id}|{stable}".encode()).hexdigest()[:16].upper(),confidence
 
 def playwright_health(browser_path:Path|None=None)->dict[str,Any]:
     try:
@@ -89,7 +111,7 @@ def local_site_server(root:Path)->Iterator[str]:
     try: yield f"http://127.0.0.1:{server.server_port}"
     finally: server.shutdown(); server.server_close(); thread.join(timeout=2)
 
-def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,limits:SiteLimits=SiteLimits())->dict[str,Any]:
+def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,limits:SiteLimits=SiteLimits(),project_id:str="",page_id:str="")->dict[str,Any]:
     """Execute only explicit requirement-driven actions; dangerous actions are blocked."""
     from playwright.sync_api import sync_playwright
     started=time.monotonic(); evidence_dir.mkdir(parents=True,exist_ok=True); events=[]; console=[]; blocked=[]; states=0
@@ -103,7 +125,21 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
             else: route.continue_()
         context.route("**/*",route_handler); page=context.new_page(); popups=[]; dialogs=[]
         page.on("console",lambda msg:console.append({"type":msg.type,"text":msg.text})); page.on("popup",lambda popup:popups.append(popup.url)); page.on("dialog",lambda dialog:(dialogs.append({"type":dialog.type,"message":dialog.message}),dialog.dismiss()))
-        page.goto(f"{base}/{entry}",wait_until="domcontentloaded")
+        page.goto(f"{base}/{entry}",wait_until="domcontentloaded",timeout=settings.playwright_operation_timeout)
+        page.locator("body").wait_for(state="attached",timeout=settings.playwright_operation_timeout)
+        deadline=time.monotonic()+settings.playwright_render_timeout_seconds; previous=None; stable_rounds=0; render_timed_out=False
+        while time.monotonic()<deadline:
+            fingerprint=page.locator("body").evaluate("e=>[e.innerText.length,e.children.length,e.querySelectorAll('button,input,select,textarea,a,[role],[contenteditable]').length,e.innerHTML.length].join(':')")
+            stable_rounds=stable_rounds+1 if fingerprint==previous else 0; previous=fingerprint
+            if stable_rounds>=settings.playwright_dom_stable_rounds: break
+            page.wait_for_timeout(settings.playwright_dom_stable_interval_ms)
+        else: render_timed_out=True
+        raw_elements=page.locator("button,input,select,textarea,a,form,table,dialog,[role],[contenteditable]").evaluate_all("""els=>els.map(e=>{const r=e.getBoundingClientRect(),lm=e.closest('header,nav,main,aside,section,form,dialog,fieldset,table');let p=[],n=e;while(n&&p.length<5){let s=n.tagName.toLowerCase();if(n.id)s+='#'+n.id;p.unshift(s);n=n.parentElement}return {tag:e.tagName.toLowerCase(),role:e.getAttribute('role')||'',id:e.id||'',name:e.getAttribute('name')||'',accessible_name:e.getAttribute('aria-label')||e.innerText||e.value||'',label:e.labels&&e.labels[0]?e.labels[0].innerText:'',placeholder:e.getAttribute('placeholder')||'',value:e.value||'',options:e.options?[...e.options].map(o=>o.text).slice(0,100):[],required:!!e.required,readonly:!!e.readOnly,disabled:!!e.disabled,checked:!!e.checked,visible:!!(r.width||r.height),box:{x:r.x,y:r.y,width:r.width,height:r.height},landmark:lm?lm.tagName.toLowerCase():'',dom_path:p.join('>')}})""")[:settings.playwright_render_max_elements]
+        rendered=[]
+        for item in raw_elements:
+            element_id,stability=_stable_rendered_id(project_id,page_id or entry,item); item.update({"element_id":element_id,"page_id":page_id or entry,"evidence_source":"browser_rendered","stability":stability}); rendered.append(item)
+        render_shot=evidence_dir/"rendered.png"
+        if settings.playwright_screenshot_enabled: page.screenshot(path=str(render_shot),full_page=True)
         for index,action in enumerate(plan[:limits.actions_per_page]):
             if time.monotonic()-started>limits.timeout_seconds or states>=limits.max_states: break
             kind=action.get("action"); semantic=action.get("target") or {}; locator=action.get("locator",""); reason="explicit_debug_locator"
@@ -129,7 +165,8 @@ def explore_site(root:Path,entry:str,plan:list[dict[str,Any]],evidence_dir:Path,
             page.wait_for_timeout(100); after={"url":page.url,"text":page.locator("body").inner_text()[:10000],"html":page.content()[:50000]}; after_path=evidence_dir/f"{index:03d}-after.png"; page.screenshot(path=str(after_path),full_page=True)
             boxes=page.locator("input,button,select,textarea,a").evaluate_all("els=>els.map(e=>{const r=e.getBoundingClientRect();return {tag:e.tagName.toLowerCase(),id:e.id,text:e.innerText||e.value||'',disabled:!!e.disabled,checked:!!e.checked,box:{x:r.x,y:r.y,width:r.width,height:r.height}}})")
             events.append({"action_id":f"ACT-{index+1}","page_id":entry,"type":"interaction","action":kind,"semantic_target":semantic,"target_box":target_box,"position_evidence":target_position,"final_locator":locator,"locator_reason":reason,"purpose":action.get("purpose",""),"before_dom_summary":before["html"],"after_dom_summary":after["html"],"url_before":before["url"],"url_after":after["url"],"visible_text_before":before["text"],"visible_text_after":after["text"],"dialogs":list(dialogs),"new_windows":list(popups),"changed":before!=after,"controls":boxes,"before_screenshot":str(before_path),"after_screenshot":str(after_path),"success":True,"failure_reason":"","expected_source":"html_observed"}); dialogs.clear(); popups.clear(); states+=2
-        result={"entry":entry,"final_url":page.url,"visible_text":page.locator("body").inner_text()[:20000],"events":events,"console_errors":[x for x in console if x["type"]=="error"],"blocked_requests":blocked,"elapsed_seconds":round(time.monotonic()-started,3),"limits":asdict(limits)}; browser.close(); return result
+        status="render_timeout" if render_timed_out else ("partial_success" if console or blocked else "completed")
+        result={"entry":entry,"page_id":page_id or entry,"status":status,"evidence_source":"browser_rendered","final_url":page.url,"visible_text":page.locator("body").inner_text()[:settings.playwright_render_max_visible_text_chars],"rendered_dom":page.content()[:settings.playwright_render_max_dom_chars],"rendered_elements":rendered,"rendered_screenshot":str(render_shot) if settings.playwright_screenshot_enabled else "","events":events,"console_errors":[x for x in console if x["type"]=="error"],"blocked_requests":blocked,"elapsed_seconds":round(time.monotonic()-started,3),"limits":asdict(limits)}; browser.close(); return result
 
 def automatic_safe_plan(root:Path,entry:str,limits:SiteLimits=SiteLimits())->list[dict[str,Any]]:
     """Create a conservative semantic plan; users never provide locators or actions."""

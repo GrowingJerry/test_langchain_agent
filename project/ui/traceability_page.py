@@ -135,12 +135,18 @@ def render_requirement_traceability_panel(service: Any, project_id: str) -> None
             upload = st.file_uploader(
                 "上传离线 HTML", type=["html", "htm"], key=f"offline_html_{project_id}"
             )
-            if st.button("分析页面元素", disabled=not upload, key=f"parse_html_{project_id}"):
-                progress=st.progress(0,text="读取并静态解析 HTML（不会启动 Playwright）")
+            if st.button("分析网页并采集证据", disabled=not upload, key=f"parse_html_{project_id}"):
+                progress=st.progress(0,text="1. 保存站点资料；2. 源码静态扫描；3. 页面类型判断")
                 try:
                     result = service.analyze_offline_html(project_id, upload.name, upload.getvalue(),include_elements=False)
-                    progress.progress(1.0,text=f"静态分析完成，用时 {result['elapsed_seconds']:.2f} 秒")
-                    st.success(f"页面 {result['page_count']}；元素 {result['element_count']}；表单 {result['form_count']}；按钮 {result['button_count']}；输入控件 {result['input_count']}；用时 {result['elapsed_seconds']:.2f} 秒。")
+                    if result.get("requires_browser_render"):
+                        progress.progress(.5,text="检测到 JavaScript 动态渲染页面；正在使用 Chromium 获取渲染后页面证据")
+                    progress.progress(1.0,text="证据采集流程结束")
+                    summary={"页面类型":result.get("page_type"),"源码元素数":result.get("source_element_count"),"渲染后元素数":result.get("rendered_element_count"),"表单数":result.get("form_count"),"按钮数":result.get("button_count"),"输入控件数":result.get("input_count"),"页面ID":result.get("page",{}).get("page_id"),"状态":result.get("status"),"耗时":result.get("elapsed_seconds")}
+                    if result.get("status") in {"completed","partial_success"}: st.success(summary)
+                    else: st.warning(summary); st.error(result.get("failure_reason") or "浏览器渲染证据未完成；源码扫描结果已保留。")
+                    with st.expander("查看页面与证据详情"):
+                        st.json({"site_package_id":result.get("site_package_id"),"page":result.get("page"),"stages":result.get("stages"),"browser_rendered":result.get("browser_rendered",{})})
                     for warning in result["warnings"]: st.warning(warning)
                 except Exception as exc:
                     logger.exception("Static HTML button failed project=%s file=%s",project_id,getattr(upload,"name",""))

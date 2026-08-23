@@ -3,7 +3,7 @@ from pathlib import Path
 from zipfile import ZipFile, ZipInfo
 import stat
 import pytest
-from application.services.offline_site_service import SiteLimits, UnsafeSitePackage, analyze_site, explore_site, safe_extract_zip
+from application.services.offline_site_service import SiteLimits, UnsafeSitePackage, analyze_site, explore_site, safe_extract_zip, scan_html_source
 
 def make_zip(files):
     out=BytesIO()
@@ -29,6 +29,23 @@ def test_multi_page_graph_and_missing_resources(tmp_path):
     assert len(result["pages"])==2 and result["entry_candidates"]==["index.html"]
     assert any(x["target"]=="profile.html" for x in result["navigation_relations"])
     assert {x["target"] for x in result["missing_resources"]}>={"missing.png","save.html"}
+
+def test_dynamic_spa_source_detection_and_static_regression():
+    fixtures=Path(__file__).parents[1]/"fixtures"/"dynamic_html"
+    spa=scan_html_source((fixtures/"spa.html").read_bytes())
+    static=scan_html_source((fixtures/"static.html").read_bytes())
+    assert spa["source_element_count"]==0 and spa["requires_browser_render"] and spa["page_type"]=="dynamic_spa"
+    assert static["source_element_count"]>=3 and not static["requires_browser_render"]
+
+@pytest.mark.playwright
+def test_real_chromium_collects_runtime_dom_with_stable_ids(tmp_path):
+    source=Path(__file__).parents[1]/"fixtures"/"dynamic_html"/"spa.html"
+    (tmp_path/"index.html").write_bytes(source.read_bytes())
+    first=explore_site(tmp_path,"index.html",[],tmp_path/"evidence",project_id="P1",page_id="PAGE-1")
+    second=explore_site(tmp_path,"index.html",[],tmp_path/"evidence2",project_id="P1",page_id="PAGE-1")
+    assert first["rendered_elements"] and first["rendered_screenshot"]
+    assert {x["element_id"] for x in first["rendered_elements"]}=={x["element_id"] for x in second["rendered_elements"]}
+    assert any(x["tag"]=="button" for x in first["rendered_elements"])
 
 @pytest.mark.playwright
 def test_playwright_bounded_requirement_driven_exploration(tmp_path):

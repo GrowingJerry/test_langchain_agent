@@ -104,6 +104,13 @@ class Settings(BaseModel):
     playwright_max_visible_text_chars: int = Field(default=20000, ge=100, le=500000)
     playwright_operation_timeout: int = Field(default=10000, ge=100, le=120000)
     playwright_worker_timeout: int = Field(default=120, ge=5, le=3600)
+    playwright_render_timeout_seconds: int = Field(default=15, ge=1, le=300)
+    playwright_dom_stable_interval_ms: int = Field(default=250, ge=50, le=5000)
+    playwright_dom_stable_rounds: int = Field(default=3, ge=1, le=20)
+    playwright_render_max_elements: int = Field(default=1000, ge=10, le=10000)
+    playwright_render_max_visible_text_chars: int = Field(default=20000, ge=100, le=500000)
+    playwright_render_max_dom_chars: int = Field(default=50000, ge=1000, le=1000000)
+    playwright_screenshot_enabled: bool = True
     playwright_viewport_width: int = Field(default=1366, ge=320, le=7680)
     playwright_viewport_height: int = Field(default=768, ge=240, le=4320)
     generation_max_history_examples: int = Field(default=2, ge=0, le=100)

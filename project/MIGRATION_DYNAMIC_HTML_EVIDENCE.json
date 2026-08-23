@@ -1,0 +1,11 @@
+{
+  "schema_version": 22,
+  "preserve": ["project/outputs", "project/.env", "project/logs", "project/vendor/playwright-browsers"],
+  "replace": ["project/application", "project/config", "project/domain", "project/infrastructure", "project/scripts", "project/tests", "project/ui"],
+  "env_added": ["PLAYWRIGHT_RENDER_TIMEOUT_SECONDS", "PLAYWRIGHT_DOM_STABLE_INTERVAL_MS", "PLAYWRIGHT_DOM_STABLE_ROUNDS", "PLAYWRIGHT_RENDER_MAX_ELEMENTS", "PLAYWRIGHT_RENDER_MAX_VISIBLE_TEXT_CHARS", "PLAYWRIGHT_RENDER_MAX_DOM_CHARS", "PLAYWRIGHT_SCREENSHOT_ENABLED"],
+  "browser_directory": "project/vendor/playwright-browsers",
+  "wheelhouse_changes": [],
+  "backup_before_upgrade": "project/outputs/sqlite/project_workspace.db",
+  "self_check": "powershell -ExecutionPolicy Bypass -File project/scripts/check-dynamic-html-evidence.ps1",
+  "rollback": "restore the prior Git commit and database backup; never delete project outputs"
+}

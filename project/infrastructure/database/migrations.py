@@ -8,7 +8,7 @@ from typing import Dict
 
 from infrastructure.database.connection import SQLiteConnectionManager
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -425,8 +425,17 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
             cursor, "html_elements", {"site_package_id": "TEXT NOT NULL DEFAULT ''"}
         )
         _ensure_columns(
-            cursor, "html_observations", {"site_package_id": "TEXT NOT NULL DEFAULT ''", "evidence_json": "TEXT NOT NULL DEFAULT '{}'"}
+            cursor, "html_observations", {"site_package_id": "TEXT NOT NULL DEFAULT ''", "evidence_json": "TEXT NOT NULL DEFAULT '{}'", "migration_status": "TEXT NOT NULL DEFAULT ''"}
         )
+        # Repair legacy path-shaped observation.page_id only inside the same project
+        # and site package.  Ambiguous/unmatched rows remain untouched for review.
+        legacy=list(cursor.execute("SELECT project_id,observation_id,page_id,site_package_id FROM html_observations WHERE page_id NOT LIKE 'PAGE-%'"))
+        for project_id,observation_id,page_path,site_package_id in legacy:
+            matches=list(cursor.execute("SELECT page_id FROM html_pages WHERE project_id=? AND site_package_id=? AND page_path=?",(project_id,site_package_id,page_path)))
+            if len(matches)==1:
+                cursor.execute("UPDATE html_observations SET page_id=?,migration_status='mapped_v22' WHERE project_id=? AND observation_id=?",(matches[0][0],project_id,observation_id))
+            else:
+                cursor.execute("UPDATE html_observations SET migration_status='needs_human_confirmation' WHERE project_id=? AND observation_id=?",(project_id,observation_id))
         _ensure_columns(
             cursor,
             "generation_runs",

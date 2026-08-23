@@ -74,6 +74,8 @@ class HtmlElement(BaseModel):
     locator_candidates: list[str] = Field(default_factory=list)
     semantic_position: str = ""
     dom_path: str = ""
+    evidence_source: str = "source_static"
+    stability: str = "high"
 
 
 class CoveragePlanItem(BaseModel):
