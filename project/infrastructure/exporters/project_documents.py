@@ -41,7 +41,10 @@ def _json_loads_list(value: Any) -> List[str]:
 def _join(value: Any) -> str:
     """Format lists and dictionaries for export cells."""
     if isinstance(value, list):
-        return "\n".join(str(x) for x in value)
+        return "\n".join(
+            json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x)
+            for x in value if x is not None
+        )
     if isinstance(value, dict):
         return json.dumps(value, ensure_ascii=False)
     return "" if value is None else str(value)
@@ -132,10 +135,10 @@ def build_project_export_rows(
                 "requirement_id": requirement_id,
                 "test_purpose": _case_field(case_json, "test_purpose", "测试目的"),
                 "prerequisites": _case_field(case_json, "prerequisites", "前置条件"),
-                "test_steps": _join(_case_field(case_json, "test_steps", "测试步骤")),
+                "test_steps": _join(_case_field(case_json, "test_steps", "steps", "测试步骤")),
                 "expected_results": _join(
                     _case_field(
-                        case_json, "expected_result", "expected_results", "预期结果"
+                        case_json, "expected_result", "expected_results", "expected", "预期结果"
                     )
                 ),
                 "pass_criteria": _case_field(case_json, "pass_criteria", "判定准则"),
@@ -343,10 +346,10 @@ def export_project_word(manager: ProjectManager, project_id: str) -> Path:
     )
 
     doc.add_heading("测试用例摘要", level=1)
-    table = doc.add_table(rows=1, cols=5)
+    table = doc.add_table(rows=1, cols=9)
     hdr = table.rows[0].cells
     for idx, title in enumerate(
-        ["用例编号", "用例名称", "需求编号", "测试类别", "需人工确认"]
+        ["用例编号", "用例名称", "需求编号", "测试类别", "测试目的", "前置条件", "测试步骤", "预期结果", "判定准则"]
     ):
         hdr[idx].text = title
     for case in cases:
@@ -355,7 +358,8 @@ def export_project_word(manager: ProjectManager, project_id: str) -> Path:
         row[1].text = str(case.get("case_name", ""))
         row[2].text = str(case.get("requirement_id", ""))
         row[3].text = str(case.get("case_type", ""))
-        row[4].text = str(case.get("need_human_confirmation", ""))
+        row[4].text = str(case.get("test_purpose", "")); row[5].text = str(case.get("prerequisites", ""))
+        row[6].text = str(case.get("test_steps", "")); row[7].text = str(case.get("expected_results", "")); row[8].text = str(case.get("pass_criteria", ""))
 
     doc.add_heading("需求覆盖情况", level=1)
     covered = {c.get("requirement_id") for c in cases if c.get("requirement_id")}

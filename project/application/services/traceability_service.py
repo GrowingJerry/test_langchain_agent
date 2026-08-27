@@ -272,7 +272,7 @@ def coverage_matrix(indicators: Iterable[RequirementIndicator], cases: Iterable[
 
 def validate_step_alignment(case: dict[str, Any]) -> None:
     steps=case.get("test_steps") or case.get("steps") or []
-    expected=case.get("expected_results") or case.get("expected") or []
+    expected=case.get("expected_result") or case.get("expected_results") or case.get("expected") or []
     if len(steps) != len(expected):
         raise ValueError("测试步骤与预期结果必须严格一一对应")
 
@@ -284,6 +284,6 @@ def enforce_online_confirmation(case: dict[str, Any], online_indicator_ids: Iter
     requires_online=bool(bound & set(online_indicator_ids)) or any(x in text for x in ("数据库","服务端","持久化","消息推送"))
     if requires_online:
         case["need_human_confirm"]=True; case["expected_source"]="requirement_pending_online"
-        expected=case.get("expected") or case.get("expected_results") or []
+        expected=case.get("expected_result") or case.get("expected_results") or case.get("expected") or []
         if expected and "联机" not in json.dumps(expected,ensure_ascii=False): expected[-1]=str(expected[-1]).rstrip("。")+"；数据库或服务端结果待联机验证。"
     return case

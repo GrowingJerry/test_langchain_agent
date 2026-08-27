@@ -20,7 +20,7 @@ def test_migration_is_idempotent_and_versions_are_project_scoped(tmp_path):
     )
     repository.create_case_version("P2", "TC-1", {"steps": ["other"], "expected": ["other"]})
     assert v1["version_no"] == 1 and v2["version_no"] == 2
-    assert v2["changed_fields"] == ["steps"]
+    assert v2["changed_fields"] == ["test_steps"]
     assert len(repository.list_case_versions("P1", "TC-1")) == 2
     assert len(repository.list_case_versions("P2", "TC-1")) == 1
     repository.set_version_status("P1", "TC-1", 2, "accepted")

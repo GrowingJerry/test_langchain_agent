@@ -6,7 +6,8 @@ import requests
 from infrastructure.llm.ollama_errors import NonRetryableSchemaError, raise_for_ollama_status, response_error_text
 import logging
 logger=logging.getLogger("test_agent.case_regeneration")
-from application.services.traceability_service import enforce_online_confirmation, validate_step_alignment
+from application.services.traceability_service import enforce_online_confirmation
+from domain.case_schema import MAX_CASE_STEPS, feedback_scope, merge_case, normalize_case, validate_case
 from infrastructure.repositories.traceability_repository import TraceabilityRepository
 
 class CaseRegenerationService:
@@ -28,32 +29,34 @@ class CaseRegenerationService:
         context=self.context(project_id,case_id); original=context["case"]
         prompt="""你只修改一个测试用例。严格输出JSON对象，不要Markdown。保持case_id、project_id、需求来源和原子需求绑定；不得增加上下文外功能；步骤与预期结果数组必须一一对应；离线HTML观测不是正式需求；服务端或数据库结果标记待联机确认。用户仅要求某字段时其他字段保持不变。\n上下文："""+json.dumps(context,ensure_ascii=False)+"\n用户反馈："+feedback
         started=time.monotonic(); last_error=""
-        step_count=len(original.get("steps") or original.get("test_steps") or []) or 1
-        schema={"type":"object","required":["case_id","steps","expected"],"properties":{"case_id":{"type":"string"},"case_name":{"type":"string"},"steps":{"type":"array","minItems":step_count,"maxItems":step_count,"items":{"type":"string","minLength":1}},"expected":{"type":"array","minItems":step_count,"maxItems":step_count,"items":{"type":"string","minLength":1}},"need_human_confirm":{"type":"boolean"},"expected_source":{"type":"string"}},"additionalProperties":True}
+        original=normalize_case(original); step_count=len(original.get("test_steps") or []) or 1
+        scope=feedback_scope(feedback); maximum=MAX_CASE_STEPS if scope == "steps" else step_count
+        schema={"type":"object","required":["case_id","test_steps","expected_result"],"properties":{"case_id":{"type":"string"},"case_name":{"type":"string"},"test_steps":{"type":"array","minItems":1,"maxItems":maximum,"items":{"type":"string","minLength":1}},"expected_result":{"type":"array","minItems":1,"maxItems":maximum,"items":{"type":"string","minLength":1}},"need_human_confirm":{"type":"boolean"},"expected_source":{"type":"string"}},"additionalProperties":True}
         correction=""
         for attempt in range(self.settings.ollama_max_retries+1):
             try:
                 response=self.session.post(self.settings.ollama_base_url.rstrip("/")+"/api/chat",json={"model":self.settings.ollama_model,"stream":False,"think":False,"format":schema,"messages":[{"role":"user","content":prompt+correction}],"options":{"temperature":0,"num_ctx":self.settings.ollama_num_ctx,"num_predict":self.settings.ollama_structured_num_predict}},timeout=self.settings.ollama_timeout)
                 if not response.ok: logger.error("Case regeneration Ollama HTTP %s response=%s",response.status_code,response_error_text(response))
                 raise_for_ollama_status(response); revised=json.loads(response.json()["message"]["content"])
-                revised["steps"]=revised.get("steps") or revised.pop("test_steps",[]) or original.get("steps") or original.get("test_steps") or []
-                revised["expected"]=revised.get("expected") or revised.pop("expected_results",revised.pop("expected_result",[])) or original.get("expected") or original.get("expected_results") or []
+                revised=merge_case(original,revised,feedback)
                 if original.get("need_human_confirm") or "联机" in json.dumps(original,ensure_ascii=False):
                     revised["indicator_ids"]=original.get("indicator_ids") or revised.get("indicator_ids") or []
                     revised=enforce_online_confirmation(revised,revised["indicator_ids"])
-                validate_step_alignment(revised)
-                if not revised["steps"] or not revised["expected"] or ("联机" in feedback and "联机" not in json.dumps(revised["expected"],ensure_ascii=False)): raise ValueError("模型输出未满足反馈或非空步骤约束")
+                revised=validate_case(revised,case_id=case_id)
+                if scope != "steps" and revised["test_steps"] != original["test_steps"]: raise ValueError("用户未要求修改步骤")
+                if "联机" in feedback and "联机" not in json.dumps(revised["expected_result"],ensure_ascii=False): raise ValueError("模型输出未满足待联机验证要求")
                 break
             except NonRetryableSchemaError: raise
             except (requests.RequestException,KeyError,TypeError,ValueError,json.JSONDecodeError) as exc:
                 last_error=f"{type(exc).__name__}: {exc}"
-                correction="\n上次输出未通过校验："+last_error+f"。必须输出恰好{step_count}条非空steps和{step_count}条非空expected；expected必须明确包含“待联机验证”。请重新输出完整JSON。"
+                correction="\n上次输出未通过校验："+last_error+"。必须输出非空test_steps和expected_result，两者数量一致；如反馈涉及联机验证，expected_result必须明确体现。请重新输出完整JSON。"
                 if attempt>=self.settings.ollama_max_retries: raise RuntimeError(f"单条用例重生成失败：{last_error}") from exc
         revised["case_id"]=original.get("case_id",case_id); revised["project_id"]=project_id
         for field in ("requirement_ids","indicator_ids","source_chunk_ids","requirement_hierarchy_path"):
             if field in original: revised[field]=original[field]
-        validate_step_alignment(revised)
+        revised=validate_case(revised,case_id=case_id)
         version=self.versions.create_case_version(project_id,case_id,revised,feedback=feedback,context=context,model_name=self.settings.ollama_model,operator=operator)
+        logger.info("Case regeneration proposed project=%s case=%s version=%s changed=%s",project_id,case_id,version["version_no"],version["changed_fields"])
         conversation_id=f"CONV-{case_id}"
         with self.manager.connections.transaction() as conn:
             conn.execute("INSERT OR IGNORE INTO case_conversations(project_id,conversation_id,case_id) VALUES(?,?,?)",(project_id,conversation_id,case_id))

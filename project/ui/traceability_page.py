@@ -267,6 +267,12 @@ def render_case_optimization_panel(service: Any, project_id: str) -> None:
         return
     by_id = {item["case_id"]: item for item in cases}
     case_id = st.selectbox("选择要优化的用例", list(by_id), key=f"regen_case_{project_id}")
+    st.write("**当前正式用例**")
+    formal = by_id[case_id].get("case_json") or {}
+    st.json({key: formal.get(key) for key in ("case_name", "test_purpose", "prerequisites", "test_steps", "expected_result", "pass_criteria")})
+    current_versions = [row for row in _trace_rows(service, project_id).get("case_version_history", []) if row.get("case_id") == case_id]
+    accepted = next((row for row in reversed(current_versions) if row.get("acceptance_status") == "accepted"), None)
+    st.caption(f"当前 accepted 版本：v{accepted['version_no']}" if accepted else "历史数据尚无 accepted 版本记录。")
     context = service.case_regeneration_context(project_id, case_id)
     with st.expander("查看该用例的需求、HTML证据和生成上下文"):
         st.json(context)
@@ -282,14 +288,18 @@ def render_case_optimization_panel(service: Any, project_id: str) -> None:
         key=f"regen_submit_{project_id}_{case_id}",
     ):
         try:
-            st.session_state[f"regen_result_{project_id}_{case_id}"] = (
-                service.regenerate_single_case(project_id, case_id, feedback.strip())
-            )
+            started=time.monotonic()
+            with st.spinner("正在调用模型生成候选版本，CPU 模型可能需要较长时间…"):
+                st.session_state[f"regen_result_{project_id}_{case_id}"] = service.regenerate_single_case(project_id, case_id, feedback.strip())
+            st.caption(f"候选版本生成用时 {time.monotonic()-started:.1f} 秒。")
         except Exception as exc:
             st.error(f"单条用例优化失败，原用例未改变：{type(exc).__name__}: {exc}")
     result = st.session_state.get(f"regen_result_{project_id}_{case_id}")
     if result:
         changed = result["version"]["changed_fields"]
+        st.write("**候选新版本**")
+        st.caption(f"v{result['version']['version_no']} · proposed")
+        st.info("生成成功仅创建候选版本。点击“接受新版本”后，才会更新正式用例及后续导出内容。")
         st.write("**新旧版本差异**")
         st.dataframe(
             [
@@ -311,7 +321,7 @@ def render_case_optimization_panel(service: Any, project_id: str) -> None:
         ):
             service.update_case_version(project_id, case_id, version, "accept")
             st.session_state.pop(f"regen_result_{project_id}_{case_id}", None)
-            st.success("新版本已设为当前用例，旧版本仍保留。")
+            st.success(f"版本 v{version} 已接受，正式用例已更新。请重新生成导出文件。")
             st.rerun()
         if reject.button("拒绝新版本", key=f"reject_{project_id}_{case_id}_{version}"):
             service.update_case_version(project_id, case_id, version, "reject")

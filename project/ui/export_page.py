@@ -61,6 +61,8 @@ def render_export_page(service, project_id) -> None:
     ]:
         path = Path(st.session_state.get(key, ""))
         if path.is_file():
+            generated_at = __import__("datetime").datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            st.caption(f"{path.name}：生成于 {generated_at}，本次包含 {len(rows['test_cases'])} 条用例。")
             st.download_button(
                 label, path.read_bytes(), path.name, mime=mime, key=f"download_{key}"
             )
