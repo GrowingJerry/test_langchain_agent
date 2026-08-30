@@ -1,6 +1,10 @@
 # 小测桌面智能体 2.0
 
-小测通过 `ApplicationContainer` 使用与 Streamlit 相同的应用服务、项目 SQLite、Ollama 配置、测试用例生成与正式导出器。桌宠不直接拼 SQL，也不让模型执行本机代码。附件先复制到 `work/assistant/<session>/attachments`，由本地解析器限额读取；助手文档输出到 `outputs/assistant/<session>/` 并强制回读。
+小测通过 `ApplicationContainer` 使用与 Streamlit 相同的应用服务、项目 SQLite、Ollama 配置、测试用例生成与正式导出器。桌宠不直接拼 SQL，也不让模型执行本机代码。附件先复制到 `outputs/assistant/<session>/attachments/`，由本地解析器限额读取；助手文档输出到同一会话目录并强制回读。
+
+当前附件实际保存到 `outputs/assistant/<session>/attachments/`。统一运行链路为：Qt 选择文件 → `upload_attachment` 安全复制并建立 `assistant_attachments` → 后台 `parse_document` → 消息写入附件 ID → `handle_message` 确定性预路由 → 白名单工具 → 回读验证 → `assistant_outputs`。日志只记录附件 ID、名称、类型、大小、结构统计和截断信息，不记录完整正文。
+
+数据库迁移会在 `ProjectManager` 初始化时通过原有迁移机制自动执行，新增 `assistant_attachments`、`assistant_tool_runs`、`assistant_outputs`，并为 `assistant_messages` 增加附件 ID 列。迁移使用 `CREATE TABLE/INDEX IF NOT EXISTS` 和增量加列，可重复执行，不删除旧数据。升级前应先复制当前项目 SQLite；验证可查询上述表是否存在。迁移失败时停止程序、恢复备份数据库和旧代码，不要删除数据库重建。
 
 ## 在线机器准备离线 wheelhouse
 

@@ -674,14 +674,49 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
                 session_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
+                attachment_ids_json TEXT NOT NULL DEFAULT '[]',
                 metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES assistant_sessions(session_id)
             );
+            CREATE TABLE IF NOT EXISTS assistant_attachments (
+                attachment_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                message_id INTEGER, original_name TEXT NOT NULL, safe_name TEXT NOT NULL,
+                media_type TEXT NOT NULL, extension TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+                sha256 TEXT NOT NULL, stored_path TEXT NOT NULL, parse_status TEXT NOT NULL,
+                parse_error TEXT NOT NULL DEFAULT '', parser_name TEXT NOT NULL DEFAULT '',
+                text_chars INTEGER NOT NULL DEFAULT 0, paragraph_count INTEGER NOT NULL DEFAULT 0,
+                table_count INTEGER NOT NULL DEFAULT 0, sheet_count INTEGER NOT NULL DEFAULT 0,
+                page_count INTEGER NOT NULL DEFAULT 0, summary_json TEXT NOT NULL DEFAULT '{}',
+                parsed_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES assistant_sessions(session_id),
+                FOREIGN KEY(message_id) REFERENCES assistant_messages(message_id)
+            );
+            CREATE TABLE IF NOT EXISTS assistant_tool_runs (
+                tool_run_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+                message_id INTEGER NOT NULL, tool_name TEXT NOT NULL, arguments_json TEXT NOT NULL,
+                status TEXT NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', error TEXT NOT NULL DEFAULT '',
+                started_at TEXT NOT NULL, finished_at TEXT,
+                FOREIGN KEY(session_id) REFERENCES assistant_sessions(session_id),
+                FOREIGN KEY(message_id) REFERENCES assistant_messages(message_id)
+            );
+            CREATE TABLE IF NOT EXISTS assistant_outputs (
+                output_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+                source_message_id INTEGER NOT NULL, source_attachment_ids_json TEXT NOT NULL DEFAULT '[]',
+                tool_run_id INTEGER NOT NULL, file_name TEXT NOT NULL, file_type TEXT NOT NULL,
+                file_path TEXT NOT NULL, size_bytes INTEGER NOT NULL, validation_status TEXT NOT NULL,
+                created_at TEXT NOT NULL, FOREIGN KEY(session_id) REFERENCES assistant_sessions(session_id),
+                FOREIGN KEY(source_message_id) REFERENCES assistant_messages(message_id),
+                FOREIGN KEY(tool_run_id) REFERENCES assistant_tool_runs(tool_run_id)
+            );
             """
         )
+        _ensure_columns(cursor, "assistant_messages", {"attachment_ids_json": "TEXT NOT NULL DEFAULT '[]'"})
         for statement in (
             "CREATE INDEX IF NOT EXISTS idx_assistant_messages_session ON assistant_messages(session_id,message_id)",
+            "CREATE INDEX IF NOT EXISTS idx_assistant_attachments_session ON assistant_attachments(session_id,message_id,created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_assistant_tool_runs_message ON assistant_tool_runs(session_id,message_id,tool_run_id)",
+            "CREATE INDEX IF NOT EXISTS idx_assistant_outputs_session ON assistant_outputs(session_id,output_id)",
             "CREATE INDEX IF NOT EXISTS idx_documents_project ON project_documents(project_id)",
             "CREATE INDEX IF NOT EXISTS idx_chunks_project_document ON project_chunks(project_id, document_id)",
             "CREATE INDEX IF NOT EXISTS idx_chunks_document ON project_chunks(document_id)",
