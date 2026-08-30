@@ -660,7 +660,28 @@ def migrate_database(connections: SQLiteConnectionManager) -> None:
                 "record_hash": "TEXT",
             },
         )
+        cursor.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS assistant_sessions (
+                session_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS assistant_messages (
+                message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES assistant_sessions(session_id)
+            );
+            """
+        )
         for statement in (
+            "CREATE INDEX IF NOT EXISTS idx_assistant_messages_session ON assistant_messages(session_id,message_id)",
             "CREATE INDEX IF NOT EXISTS idx_documents_project ON project_documents(project_id)",
             "CREATE INDEX IF NOT EXISTS idx_chunks_project_document ON project_chunks(project_id, document_id)",
             "CREATE INDEX IF NOT EXISTS idx_chunks_document ON project_chunks(document_id)",

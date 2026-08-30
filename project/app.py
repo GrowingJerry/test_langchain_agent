@@ -4,28 +4,21 @@
 from pathlib import Path
 
 import streamlit as st
-from infrastructure.runtime_diagnostics import logger
 
-from config import settings
-from application.services.project_service import DEFAULT_PROJECT_DB
 from application.container import ApplicationContainer
-from ui.navigation import ensure_current_project, render_project_selector
-from ui.workbench_page import render_workbench_page
-from ui.knowledge_page import render_knowledge_page
-from ui.generation_page import render_generation_page
-from ui.review_trace_page import render_review_trace_page
+from application.services.project_service import DEFAULT_PROJECT_DB
+from config import settings
+from infrastructure.runtime_diagnostics import logger
 from ui.export_page import render_export_page
+from ui.generation_page import render_generation_page
+from ui.knowledge_page import render_knowledge_page
+from ui.navigation import ensure_current_project, render_project_selector
+from ui.review_trace_page import render_review_trace_page
 from ui.settings_page import render_settings_page
+from ui.workbench_page import render_workbench_page
 
 
-PAGES = [
-    "项目工作台",
-    "资料与需求",
-    "生成测试用例",
-    "用例审查",
-    "导出中心",
-    "系统设置",
-]
+PAGES = ["项目工作台", "资料与需求", "生成测试用例", "用例审查", "导出中心", "系统设置"]
 
 
 def _runtime_config() -> dict:
@@ -51,57 +44,47 @@ def _runtime_config() -> dict:
 
 
 def _settings_from_runtime_config(config: dict) -> settings.Settings:
-    return settings.settings.model_copy(
-        update={
-            "ollama_base_url": config["ollama_url"],
-            "ollama_model": config["model"],
-            "enable_ollama": bool(config["use_ollama"]),
-            "enable_agent": bool(config.get("use_agent", False)),
-            "enable_case_library": bool(config["use_library"]),
-            "top_k_cases": int(config["top_k"]),
-        }
-    )
+    return settings.settings.model_copy(update={
+        "ollama_base_url": config["ollama_url"],
+        "ollama_model": config["model"],
+        "enable_ollama": bool(config["use_ollama"]),
+        "enable_agent": bool(config.get("use_agent", False)),
+        "enable_case_library": bool(config["use_library"]),
+        "top_k_cases": int(config["top_k"]),
+    })
 
 
 def main() -> None:
-    st.set_page_config(
-        page_title="项目级测试文档智能生成系统", page_icon="🧭", layout="wide"
-    )
+    st.set_page_config(page_title="项目级测试文档智能生成系统", page_icon="🧭", layout="wide")
     config = _runtime_config()
     runtime_settings = _settings_from_runtime_config(config)
     library_db = Path(config["library_db"]) if config["use_library"] else None
-    service = ApplicationContainer().build_ui_service(
-        Path(config["project_db"]), library_db, runtime_settings
-    )
-    case_library = service.case_library
+    service = ApplicationContainer().build_ui_service(Path(config["project_db"]), library_db, runtime_settings)
     ensure_current_project(service)
 
+    requested_page = st.query_params.get("page")
+    if requested_page in PAGES:
+        st.session_state["main_navigation"] = requested_page
     with st.sidebar:
         st.title("测试文档智能生成")
         st.caption("以当前项目资料为事实源")
         project_id = render_project_selector(service)
         st.divider()
-        page = st.radio("主导航", PAGES, label_visibility="collapsed")
+        page = st.radio(
+            "主导航", PAGES, label_visibility="collapsed", key="main_navigation"
+        )
         st.divider()
         st.caption(f"Ollama：{'启用' if config['use_ollama'] else '关闭'}")
         st.caption(f"Agent：{'启用' if config.get('use_agent') else '关闭'}")
-        st.caption(
-            f"历史用例库：{'启用（仅参考）' if config['use_library'] else '关闭'}"
-        )
+        st.caption(f"历史用例库：{'启用（仅参考）' if config['use_library'] else '关闭'}")
 
     st.title("项目级测试文档智能生成系统")
     if page == "项目工作台":
         render_workbench_page(service, project_id)
     elif page == "资料与需求":
-        render_knowledge_page(
-            service,
-            project_id,
-            case_library,
-            int(config["top_k"]),
-            bool(config["use_ollama"]),
-        )
+        render_knowledge_page(service, project_id, service.case_library, int(config["top_k"]), bool(config["use_ollama"]))
     elif page == "生成测试用例":
-        render_generation_page(service, project_id, case_library, config)
+        render_generation_page(service, project_id, service.case_library, config)
     elif page == "用例审查":
         render_review_trace_page(service, project_id, config)
     elif page == "导出中心":

@@ -26,6 +26,10 @@ class SQLiteConnectionManager:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute(f"PRAGMA busy_timeout={int(self.busy_timeout_ms)}")
+            # Streamlit and Xiaoche may read concurrently. WAL keeps readers from
+            # blocking the single writer while preserving existing transactions.
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=NORMAL")
             return connection
         except sqlite3.Error as exc:
             raise PersistenceError(

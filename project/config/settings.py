@@ -52,6 +52,17 @@ class Settings(BaseModel):
     structured_output_max_retries: int = Field(default=2, ge=0, le=10)
     enable_streaming: bool = False
     upload_max_bytes: int = Field(default=20 * 1024 * 1024, ge=1, le=200 * 1024 * 1024)
+    xiaoche_enabled: bool = True
+    xiaoche_app_url: str = "http://127.0.0.1:8501"
+    xiaoche_always_on_top: bool = True
+    xiaoche_auto_dock: bool = True
+    xiaoche_auto_hide_seconds: int = Field(default=60, ge=5, le=86400)
+    xiaoche_status_poll_ms: int = Field(default=2000, ge=500, le=60000)
+    xiaoche_chat_timeout: int = Field(default=120, ge=5, le=3600)
+    xiaoche_max_attachments: int = Field(default=10, ge=1, le=100)
+    xiaoche_max_attachment_bytes: int = Field(default=20 * 1024 * 1024, ge=1, le=200 * 1024 * 1024)
+    xiaoche_session_context_budget: int = Field(default=12000, ge=1000, le=1000000)
+    xiaoche_output_dir: str = "outputs/assistant"
     document_max_chars: int = Field(default=2_000_000, ge=1000, le=20_000_000)
     pdf_max_pages: int = Field(default=500, ge=1, le=5000)
     background_document_page_threshold: int = Field(default=50, ge=1, le=5000)

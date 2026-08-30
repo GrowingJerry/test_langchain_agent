@@ -24,3 +24,16 @@ class ApplicationContainer:
         manager = ProjectManager(project_db)
         library = CaseLibraryManager(library_db) if library_db else None
         return UIApplicationService(manager, library, settings or self.settings)
+
+    def build_assistant_gateway(
+        self,
+        project_db: Path,
+        library_db: Optional[Path] = None,
+        settings: Optional[Settings] = None,
+    ):
+        """Build Xiaoche over the same service graph and SQLite database as Streamlit."""
+        from application.assistant.gateway import AssistantGateway
+
+        runtime = settings or self.settings
+        service = self.build_ui_service(project_db, library_db, runtime)
+        return AssistantGateway(service, runtime, Path(__file__).resolve().parents[1])
