@@ -1,0 +1,107 @@
+"""Runtime context that binds an Agent and all tools to one project."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
+
+from config.settings import Settings, settings as default_settings
+from domain.exceptions import ProjectScopeError
+from infrastructure.retrieval.project_retriever import ProjectRetriever
+
+
+@dataclass
+class AgentRuntimeContext:
+    """Project-bound dependencies and non-persistent execution observations."""
+
+    project_id: str
+    manager: Any
+    case_library: Optional[Any] = None
+    settings: Settings = default_settings
+    retriever: Optional[ProjectRetriever] = None
+    used_tool_names: List[str] = field(default_factory=list, init=False)
+    retrieved_source_chunk_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_source_documents: List[str] = field(default_factory=list, init=False)
+    retrieved_scenario_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_knowledge_unit_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_equipment_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_configuration_rule_ids: List[str] = field(default_factory=list, init=False)
+    retrieved_scenario_validation_run_ids: List[str] = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        self.project_id = str(self.project_id or "").strip()
+        if not self.project_id:
+            raise ProjectScopeError("AgentRuntimeContext requires a bound project_id")
+        if self.retriever is None:
+            self.retriever = ProjectRetriever(self.manager, self.project_id)
+        elif self.retriever.project_id != self.project_id:
+            raise ProjectScopeError(
+                "Retriever project scope does not match AgentRuntimeContext"
+            )
+
+    def record_tool(self, tool_name: str) -> None:
+        if tool_name not in self.used_tool_names:
+            self.used_tool_names.append(tool_name)
+
+    def record_chunks(self, chunk_ids: List[str]) -> None:
+        added: List[str] = []
+        for chunk_id in chunk_ids:
+            if chunk_id and chunk_id not in self.retrieved_source_chunk_ids:
+                self.retrieved_source_chunk_ids.append(chunk_id)
+                added.append(chunk_id)
+        if not added:
+            return
+        connections = getattr(self.manager, "connections", None)
+        if connections is None:
+            return
+        placeholders = ",".join("?" for _ in added)
+        with connections.connection() as conn:
+            rows = conn.execute(
+                f"""SELECT DISTINCT d.filename
+                FROM project_chunks c
+                JOIN project_documents d ON d.document_id=c.document_id
+                WHERE c.project_id=? AND c.chunk_id IN ({placeholders})""",
+                (self.project_id, *added),
+            ).fetchall()
+        self.record_documents([str(row["filename"] or "") for row in rows])
+
+    def record_documents(self, document_names: List[str]) -> None:
+        for document_name in document_names:
+            if document_name and document_name not in self.retrieved_source_documents:
+                self.retrieved_source_documents.append(document_name)
+
+    def record_scenarios(self, scenario_ids: List[str]) -> None:
+        for scenario_id in scenario_ids:
+            if scenario_id and scenario_id not in self.retrieved_scenario_ids:
+                self.retrieved_scenario_ids.append(scenario_id)
+
+    @staticmethod
+    def _record_unique(target: List[str], values: List[str]) -> None:
+        for value in values:
+            if value and value not in target:
+                target.append(value)
+
+    def record_knowledge(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_knowledge_unit_ids, values)
+
+    def record_equipment(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_equipment_ids, values)
+
+    def record_rules(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_configuration_rule_ids, values)
+
+    def record_validation_runs(self, values: List[str]) -> None:
+        self._record_unique(self.retrieved_scenario_validation_run_ids, values)
+
+    def record_source_refs(self, refs: List[dict[str, Any]]) -> None:
+        self.record_chunks([str(ref.get("chunk_id") or "") for ref in refs])
+
+    def reset_observations(self) -> None:
+        self.used_tool_names.clear()
+        self.retrieved_source_chunk_ids.clear()
+        self.retrieved_source_documents.clear()
+        self.retrieved_scenario_ids.clear()
+        self.retrieved_knowledge_unit_ids.clear()
+        self.retrieved_equipment_ids.clear()
+        self.retrieved_configuration_rule_ids.clear()
+        self.retrieved_scenario_validation_run_ids.clear()

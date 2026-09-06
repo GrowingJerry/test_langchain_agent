@@ -1,0 +1,36 @@
+{
+  "project_id": "PRJ-3757201bccda",
+  "requirement_ids": [
+    "REQ-SMOKE"
+  ],
+  "scenario_ids": [],
+  "case_type": "功能测试",
+  "case_count": 1,
+  "auto_case_count": false,
+  "requested_mode": "rule",
+  "use_project_kb": true,
+  "use_history": true,
+  "top_k_chunks": 5,
+  "top_k_history": 5,
+  "additional_instructions": "",
+  "manual_cases": [],
+  "recommended_test_type": "",
+  "selected_test_type": "",
+  "test_type_overridden": false,
+  "test_type_confidence": 0.0,
+  "test_type_reasons": [],
+  "batch_id": "INSTALLED-SMOKE",
+  "generation_strategy": "legacy",
+  "max_cases_per_atom": 10,
+  "manual_total_case_limit": null,
+  "coverage_types": [
+    "normal",
+    "abnormal",
+    "boundary",
+    "state",
+    "constraint",
+    "recovery"
+  ],
+  "atomic_requirement_id": "",
+  "target_test_points": []
+}

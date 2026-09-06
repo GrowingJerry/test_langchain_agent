@@ -1,0 +1,27 @@
+{
+  "run_id": "RUN-4EC49D5A5A4E",
+  "operation_type": "test_case_generation",
+  "operation_name": "测试用例生成",
+  "project_id": "PRJ-3757201bccda",
+  "project_name": "installed-worker-smoke",
+  "requirement_id": "REQ-SMOKE",
+  "requirement_name": "状态查询",
+  "test_type": "功能测试",
+  "generation_mode": "rule_fallback",
+  "model": "qwen3:8b",
+  "started_at": "2026-09-03T07:53:27.890517+00:00",
+  "ended_at": "2026-09-03T07:53:28.159258+00:00",
+  "status": "completed",
+  "case_ids": [
+    "REQ-E63FB898-0001"
+  ],
+  "failure_reason": "",
+  "case_count": 1,
+  "valid_case_count": 0,
+  "review_case_count": 1,
+  "rejected_case_count": 0,
+  "elapsed_seconds": 0.265,
+  "fingerprints": [
+    "2d53beae9c8de40f86a92f38759714b68bd28a5c81e84106e5f49f8befc02136"
+  ]
+}

@@ -1,0 +1,111 @@
+[
+  {
+    "case_id": "REQ-E63FB898-0001",
+    "title": "功能测试-REQ-SMOKE-需求对应场景需人工确认-1",
+    "objective": "验证需求 REQ-SMOKE：系统应返回当前状态",
+    "preconditions": [
+      "按当前项目文档准备测试环境、版本和初始状态"
+    ],
+    "test_steps": [
+      "确认当前项目测试对象已按当前项目文档部署，并核对前置条件、版本和初始状态。",
+      "准备项目资料明确给出的测试数据并执行“系统应返回当前状态”。",
+      "观察并记录“需求对应场景需人工确认”中的界面、接口返回、日志和状态变化。",
+      "将实际结果与当前需求、验收标准和来源片段逐项比对。"
+    ],
+    "expected_results": [
+      "测试对象、版本和初始状态满足当前项目文档约定。",
+      "系统进入当前需求规定的处理流程；未明确的输入数据需人工确认。",
+      "形成可追溯的实际结果、接口响应、日志或状态记录。",
+      "实际结果符合当前需求；资料未给出阈值时按需求文档规定值判定。"
+    ],
+    "evaluation_criteria": "需人工确认",
+    "test_data": [],
+    "environment": [],
+    "requirement_ids": [
+      "REQ-SMOKE"
+    ],
+    "scenario_ids": [],
+    "source_chunk_ids": [],
+    "source_documents": [],
+    "quality_category": [
+      "可靠性"
+    ],
+    "test_method": "故障注入测试、恢复性测试、重复试验统计",
+    "need_human_confirm": true,
+    "missing_information": [
+      "项目画像",
+      "关联场景卡片",
+      "需求相关项目片段",
+      "明确测试对象",
+      "场景输入数据",
+      "关联场景"
+    ],
+    "generation_mode": "rule_fallback",
+    "indicator_ids": [],
+    "atomic_requirement_id": "",
+    "test_point_id": "",
+    "test_point_scenario_type": "other",
+    "data_variant": "",
+    "scenario_variant": "",
+    "generation_batch_id": "",
+    "requirement_hierarchy_path": [],
+    "function_id": "REQ-SMOKE",
+    "page_ids": [],
+    "html_element_ids": [],
+    "playwright_observation_ids": [],
+    "expected_source": "inferred_pending_confirmation",
+    "offline_verifiable": false,
+    "online_verification_items": [],
+    "structured_steps": [],
+    "review_status": "draft_needs_review",
+    "quality_issues": [
+      {
+        "code": "quality_standard",
+        "severity": "review_required",
+        "message": "测试步骤尚未完整体现可执行操作与输入数据"
+      },
+      {
+        "code": "quality_standard",
+        "severity": "review_required",
+        "message": "来源片段缺失或不属于本次检索上下文"
+      },
+      {
+        "code": "quality_standard",
+        "severity": "review_required",
+        "message": "疑似存在资料未支持的数值指标：1"
+      }
+    ],
+    "project_id": "PRJ-3757201bccda",
+    "requirement_id": "REQ-SMOKE",
+    "scenario_id": "",
+    "related_scenario": "",
+    "case_type": "功能测试",
+    "case_name": "功能测试-REQ-SMOKE-需求对应场景需人工确认-1",
+    "test_purpose": "验证需求 REQ-SMOKE：系统应返回当前状态",
+    "prerequisites": [
+      "按当前项目文档准备测试环境、版本和初始状态"
+    ],
+    "input_data": [],
+    "test_environment": [],
+    "expected_result": [
+      "测试对象、版本和初始状态满足当前项目文档约定。",
+      "系统进入当前需求规定的处理流程；未明确的输入数据需人工确认。",
+      "形成可追溯的实际结果、接口响应、日志或状态记录。",
+      "实际结果符合当前需求；资料未给出阈值时按需求文档规定值判定。"
+    ],
+    "pass_criteria": "需人工确认",
+    "fallback_reason": "requested_rule_mode",
+    "generation_run_id": "RUN-1887e6771289",
+    "provenance": {
+      "recommended_test_type": "",
+      "selected_test_type": "功能测试",
+      "test_type_overridden": false,
+      "test_type_confidence": 0.0,
+      "test_type_reasons": [],
+      "case_count": 1,
+      "auto_case_count": false,
+      "batch_id": "INSTALLED-SMOKE"
+    },
+    "quality_score": 48.3
+  }
+]

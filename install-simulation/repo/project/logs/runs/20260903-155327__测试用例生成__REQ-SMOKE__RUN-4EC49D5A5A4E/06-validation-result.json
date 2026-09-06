@@ -1,0 +1,40 @@
+[
+  {
+    "score": 48.3,
+    "dimensions": {
+      "需求覆盖度": 100,
+      "场景贴合度": 35,
+      "步骤可执行性": 60,
+      "判定准则明确性": 60,
+      "来源可追溯性": 15,
+      "无臆造指标": 20
+    },
+    "issues": [
+      "测试步骤尚未完整体现可执行操作与输入数据",
+      "来源片段缺失或不属于本次检索上下文",
+      "疑似存在资料未支持的数值指标：1"
+    ],
+    "suggestions": [
+      "补充操作者、输入、接口调用、状态观察和记录动作",
+      "仅保留上下文中真实存在的 source_chunk_ids",
+      "删除无来源数值，改为“按需求文档规定值判定”或“需人工确认”",
+      "生成结果已标记需人工确认，请补齐 missing_information"
+    ],
+    "has_fabricated_metrics": true,
+    "visual_evidence_usage_score": {
+      "score": null,
+      "status": "not_applicable",
+      "issues": [],
+      "suggestions": [],
+      "reasons": [
+        "当前上下文和用例均未使用视觉证据，不参与扣分。"
+      ]
+    },
+    "validation_issues": [],
+    "severity_counts": {
+      "hard_error": 0,
+      "review_required": 0,
+      "warning": 0
+    }
+  }
+]
